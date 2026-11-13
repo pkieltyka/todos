@@ -367,3 +367,42 @@ func squash(s string) string {
 	}
 	return b.String()
 }
+
+// Dogfood (Phase 4): glamour hard-wraps blockquote text without its prefix
+// at some widths. Every line of a quote, at any width and in both a styled and
+// the plain style, keeps its bar and its width, and no word is lost.
+func TestRender_quoteLinesKeepTheirPrefix(t *testing.T) {
+	words := strings.Fields("A rejected change is removed from the log so the screen returns to the truth without any rollback code at all")
+	r := NewRenderer(Options{})
+	for _, s := range []Style{Plain, Dark} {
+		for _, depth := range []int{1, 2} {
+			prefix := strings.Repeat("> ", depth)
+			for w := 30; w <= 100; w++ {
+				for n := 3; n <= len(words); n += 2 {
+					out, err := r.Render(prefix+strings.Join(words[:n], " ")+"\n", w, s)
+					if err != nil {
+						t.Fatal(err)
+					}
+					var text []string
+					for _, l := range strings.Split(out, "\n") {
+						plain := xansi.Strip(l)
+						if strings.TrimSpace(plain) == "" {
+							continue
+						}
+						content := strings.TrimSpace(strings.NewReplacer("│", "", "|", "").Replace(plain))
+						if content != "" && quotePrefixWidth(plain) != 2*depth {
+							t.Fatalf("style %d depth %d width %d: line without its quote bars: %q\n%s", s, depth, w, plain, xansi.Strip(out))
+						}
+						if got := xansi.StringWidth(l); got != w {
+							t.Fatalf("style %d depth %d width %d: line is %d wide", s, depth, w, got)
+						}
+						text = append(text, strings.Fields(strings.ReplaceAll(strings.ReplaceAll(plain, "│", ""), "|", ""))...)
+					}
+					if strings.Join(text, " ") != strings.Join(words[:n], " ") {
+						t.Fatalf("style %d depth %d width %d: words changed: %q", s, depth, w, strings.Join(text, " "))
+					}
+				}
+			}
+		}
+	}
+}

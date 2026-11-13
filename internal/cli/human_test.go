@@ -197,3 +197,41 @@ func TestHuman_ThemeCaseAndInvalidWarning(t *testing.T) {
 		}
 	}
 }
+
+func TestHuman_PlainBodyHasNoTrailingPadding(t *testing.T) {
+	fixture := servicetest.DefaultFixture()
+	fixture.Issues[0].Body = "## Scope\n\nBody with blank lines.\n\n- item\n"
+	out, stderr, code := runFake(servicetest.New(fixture), true, "view", "6", "--no-color")
+	if code != 0 || stderr != "" {
+		t.Fatal(code, stderr)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasSuffix(line, " ") {
+			t.Fatalf("trailing padding: %q", line)
+		}
+	}
+	if !strings.Contains(out, "\n  Body with blank lines.\n\n") {
+		t.Fatal(out)
+	}
+}
+func TestHuman_BoardColumnsShareWidths(t *testing.T) {
+	var out bytes.Buffer
+	r := &runtime{deps: normaliseDeps(Dependencies{Width: func(io.Writer) int { return 100 }}), mode: Human, global: GlobalOptions{NoColor: true}}
+	a, b := "One", "Two"
+	board := BoardDTO{Columns: []ColumnDTO{{Status: &a, Cards: []CardDTO{{Number: 1, Title: "First", Labels: []string{"tiny"}, Assignees: []string{"bob"}}}}, {Status: &b, Cards: []CardDTO{{Number: 2, Title: "Second", Labels: []string{"much-longer-label"}, Assignees: []string{"alexander_12"}}}}}}
+	if err := renderHuman(context.Background(), r, &out, board); err != nil {
+		t.Fatal(err)
+	}
+	var first, second string
+	for _, line := range strings.Split(out.String(), "\n") {
+		if strings.Contains(line, "#1") {
+			first = line
+		}
+		if strings.Contains(line, "#2") {
+			second = line
+		}
+	}
+	if strings.Index(first, "tiny") != strings.Index(second, "much-longer-label") || strings.Index(first, "bob") != strings.Index(second, "alexander_12") {
+		t.Fatal("columns differ between sections", out.String())
+	}
+}

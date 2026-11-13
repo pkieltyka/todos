@@ -72,6 +72,18 @@ func issueStateWord(t Theme, i domain.Issue) string {
 	return t.fg(t.Done).Render("✓ Closed")
 }
 
+// issueStateShort is the state for the 32-cell side panel, where "Closed as
+// not planned" does not fit (dogfood, Phase 4).
+func issueStateShort(t Theme, i domain.Issue) string {
+	switch {
+	case i.State != "closed":
+		return t.fg(t.Open).Render("○ Open")
+	case i.StateReason != nil && *i.StateReason == "not_planned":
+		return t.fg(t.Inactive).Render("⊘ Not planned")
+	}
+	return t.fg(t.Done).Render("✓ Closed")
+}
+
 func prGlyph(t Theme, p domain.PullRequest) string {
 	switch {
 	case p.State == "merged":

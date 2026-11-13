@@ -3,18 +3,23 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/cli/go-gh/v2/pkg/auth"
+	"github.com/cli/go-gh/v2/pkg/browser"
 	ghrepo "github.com/cli/go-gh/v2/pkg/repository"
+	"github.com/google/shlex"
 	"github.com/pkieltyka/todos/internal/config"
 	"github.com/pkieltyka/todos/internal/domain"
 	"github.com/pkieltyka/todos/internal/github"
 	"github.com/pkieltyka/todos/internal/markdown"
 	"github.com/pkieltyka/todos/internal/service"
+	"github.com/pkieltyka/todos/internal/tui"
 	"golang.org/x/term"
 )
 
@@ -32,6 +37,7 @@ const (
 
 type Wiring struct {
 	Service       service.Service
+	Drafts        tui.DraftStore
 	ConfigWarning func() *domain.Error
 }
 type Dependencies struct {
@@ -47,6 +53,8 @@ type Dependencies struct {
 	Width       func(io.Writer) int
 	ResolveRepo func(context.Context, string) (domain.RepoRef, error)
 	Wire        func(context.Context, func(context.Context) (domain.RepoRef, error), string) (Wiring, error)
+	RunTUI      func(context.Context, tui.Deps, tui.Options) error
+	Open        func(string) error
 	Interrupted func() bool
 }
 type runtime struct {
@@ -73,6 +81,12 @@ func ProductionDependencies(skill []byte, version string) Dependencies {
 	return normaliseDeps(Dependencies{In: os.Stdin, Out: os.Stdout, Err: os.Stderr, Skill: skill, Version: version})
 }
 func completeDeps(d Dependencies) Dependencies {
+	if d.RunTUI == nil {
+		d.RunTUI = tui.Run
+	}
+	if d.Open == nil {
+		d.Open = func(url string) error { return browser.New("", d.Out, d.Err).Browse(url) }
+	}
 	if d.Getenv == nil {
 		d.Getenv = os.Getenv
 	}
@@ -199,4 +213,50 @@ func (r *runtime) resolvedRepo(ctx context.Context) (domain.RepoRef, error) {
 	}
 	r.repo = ref
 	return ref, nil
+}
+
+func (r *runtime) startTUI(ctx context.Context, view tui.ViewID) error {
+	if r.global.JSON {
+		return usage("--json cannot be used with the TUI")
+	}
+	if !r.deps.InputIsTTY(r.deps.In) || !r.deps.IsTTY(r.deps.Out) {
+		return usage("the TUI requires a terminal for input and output")
+	}
+	repo, err := r.resolvedRepo(ctx)
+	if err != nil {
+		return err
+	}
+	_, noColorEnv := r.deps.LookupEnv("NO_COLOR")
+	env := tui.Env{Theme: r.deps.Getenv("TODOS_THEME"), NoColor: r.global.NoColor || noColorEnv}
+	editorName := "VISUAL"
+	editor := r.deps.Getenv(editorName)
+	if editor == "" {
+		editorName = "EDITOR"
+		editor = r.deps.Getenv(editorName)
+	}
+	if editor != "" {
+		env.Editor, err = shlex.Split(editor)
+		if err != nil || len(env.Editor) == 0 {
+			return usage(editorName + " must contain a valid editor command")
+		}
+	}
+	if err = r.ensureService(ctx); err != nil {
+		return err
+	}
+	r.renderer = markdown.NewRenderer(markdown.Options{BaseURL: "https://" + repo.Host + "/" + repo.Owner + "/" + repo.Name})
+	if strings.TrimSpace(env.Theme) != "" {
+		if _, ok := tui.ParseOverride(env.Theme); !ok {
+			_, _ = fmt.Fprintln(r.deps.Err, "warning: invalid TODOS_THEME; expected light or dark; using terminal background detection")
+		}
+	}
+	if r.wiring.ConfigWarning != nil {
+		if warning := r.wiring.ConfigWarning(); warning != nil {
+			_, _ = fmt.Fprintln(r.deps.Err, "warning:", markdown.SanitizeLine(warning.Message))
+		}
+	}
+	err = r.deps.RunTUI(ctx, tui.Deps{Service: r.wiring.Service, Drafts: r.wiring.Drafts, Renderer: r.renderer, Clock: r.deps.Now, Open: r.deps.Open, Env: env}, tui.Options{StartView: view, Repo: repo})
+	if err != nil && ctx.Err() != nil {
+		return domainError(ctx.Err())
+	}
+	return domainError(err)
 }

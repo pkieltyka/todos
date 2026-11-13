@@ -10,6 +10,8 @@ import (
 	"charm.land/glamour/v2/ansi"
 	"charm.land/glamour/v2/styles"
 	xansi "github.com/charmbracelet/x/ansi"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/text"
 )
 
 // Style selects the glamour style. The caller chooses it; v2 has no auto style.
@@ -114,9 +116,13 @@ func (r *Renderer) Render(src string, width int, s Style) (string, error) {
 		return out, nil
 	}
 	clean := SanitizeBody(src)
-	out, err := r.render(rewriteImages(clean), width, s)
+	md := rewriteImages(clean)
+	out, err := r.render(md, width, s)
 	if err != nil {
 		return "", err
+	}
+	if quoteDepth(md) > 0 {
+		out = repairQuotes(out, width)
 	}
 	if !guard(out) {
 		out = xansi.Wordwrap(clean, width, "")
@@ -232,4 +238,93 @@ func trimBlankLines(s string) string {
 		lines = lines[:len(lines)-1]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// quoteDepth is the deepest blockquote nesting in Markdown source, parsed the
+// way glamour parses it.
+func quoteDepth(src string) int {
+	if !strings.Contains(src, ">") {
+		return 0
+	}
+	doc := htmlParser.Parse(text.NewReader([]byte(src)))
+	deepest := 0
+	var walk func(n ast.Node, d int)
+	walk = func(n ast.Node, d int) {
+		if n.Kind() == ast.KindBlockquote {
+			d++
+			deepest = max(deepest, d)
+		}
+		for c := n.FirstChild(); c != nil; c = c.NextSibling() {
+			walk(c, d)
+		}
+	}
+	walk(doc, 0)
+	return deepest
+}
+
+// repairQuotes fixes a glamour wrapping bug found in dogfooding: inside a
+// blockquote, glamour sometimes hard-wraps the last word of a line onto a
+// line of its own without the "│ " prefix. Such an orphan directly follows a
+// quoted line, so it gets that line's prefix (with its styling, cut from the
+// line itself) and is padded back to width. Narrowing the wrap width does not
+// avoid the bug; repairing the result does.
+func repairQuotes(out string, width int) string {
+	lines := strings.Split(out, "\n")
+	for i := 1; i < len(lines); i++ {
+		prev := xansi.Strip(lines[i-1])
+		cur := xansi.Strip(lines[i])
+		pw, cw := quotePrefixWidth(prev), quotePrefixWidth(cur)
+		// An orphan has text and fewer bars than the text line above it
+		// (none, or only the outer ones in a nested quote). glamour separates
+		// a nested quote from the outer text with a bar-only line, so real
+		// content never matches.
+		if pw == 0 || cw >= pw || !hasText(prev) || !hasText(cur) {
+			continue
+		}
+		// The text ends where the plain line's trailing padding starts; the
+		// padding itself may be styled, so it is measured on the plain line.
+		end := xansi.StringWidth(strings.TrimRight(cur, " "))
+		if end-cw > width-pw {
+			continue // not a short orphan; leave glamour's line alone
+		}
+		body := xansi.Cut(lines[i], cw, end)
+		fixed := xansi.Cut(lines[i-1], 0, pw) + body
+		if pad := width - xansi.StringWidth(fixed); pad > 0 {
+			fixed += strings.Repeat(" ", pad)
+		}
+		lines[i] = fixed
+	}
+	return strings.Join(lines, "\n")
+}
+
+// hasText reports a line with something besides quote bars and spaces.
+func hasText(plain string) bool {
+	return strings.TrimSpace(strings.NewReplacer("│", "", "|", "").Replace(plain)) != ""
+}
+
+// quotePrefixWidth is the width of a run of quote bars ("│ " or "| ") at the
+// start of a plain line, 0 when there is none.
+func quotePrefixWidth(plain string) int {
+	w := 0
+	for {
+		rest := plain[min(len(plain), byteOffset(plain, w)):]
+		switch {
+		case strings.HasPrefix(rest, "│ "), strings.HasPrefix(rest, "| "):
+			w += 2
+		default:
+			return w
+		}
+	}
+}
+
+// byteOffset is the byte index of cell w in a plain string of narrow runes.
+func byteOffset(s string, w int) int {
+	cells := 0
+	for i := range s {
+		if cells == w {
+			return i
+		}
+		cells++
+	}
+	return len(s)
 }

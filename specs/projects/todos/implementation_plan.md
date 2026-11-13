@@ -37,7 +37,7 @@ diff, the developer fixes what is found, @cto reviews and commits. @pm updates
   Frame, theme, keymap, store with progressive loading and refresh. Issue list
   and detail, pull request list and detail, board, board setup states, help,
   too-small state. Golden renders.
-- [ ] **Phase 4: First dogfood** (both). Wire the real service into `todos`
+- [x] **Phase 4: First dogfood** (both). Wire the real service into `todos`
   and `todos tui`. Run it against this repository and its board. Fix what the
   real data breaks.
 - [ ] **Phase 5: Changes, core** (core; parallel with Phase 6). Mutations in

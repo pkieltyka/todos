@@ -135,6 +135,10 @@ type autoRefreshMsg struct{ gen uint64 }
 
 type spinnerTickMsg struct{ gen uint64 }
 
+// clockTickMsg redraws once a second so relative times ("synced 12s ago",
+// "3m") keep moving while nothing else happens (dogfood, Phase 4).
+type clockTickMsg struct{}
+
 type toastExpireMsg struct{ id uint64 }
 
 type openedMsg struct{ err error }

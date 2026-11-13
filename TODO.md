@@ -4,9 +4,7 @@ Owner of this file: @pm. Only @pm edits it; ask @pm to add or change items.
 
 ## Now
 
-- [ ] Phase 2: Read path, core — @lead-dev — in progress
-- [ ] Phase 3: Read-only TUI — @frontend-dev — in progress, started when the foundation compiled
-- [ ] Phase 4: First dogfood — @lead-dev + @frontend-dev — not started
+- [ ] Phase 4: First dogfood — @lead-dev + @frontend-dev — in progress; @lead-dev is creating the fourteen real backlog issues on GitHub and its board, then wiring the TUI to the real service; @frontend-dev then drives the real TUI against the repository and fixes what real data breaks
 - [ ] Phase 5: Changes, core — @lead-dev — not started (parallel with Phase 6)
 - [ ] Phase 6: Changes, TUI — @frontend-dev — not started
 - [ ] Phase 7: Quick add, core — @lead-dev — not started (parallel with Phase 8)
@@ -15,6 +13,8 @@ Owner of this file: @pm. Only @pm edits it; ask @pm to add or change items.
 
 ## Done
 
+- [x] Phase 2: Read path, core — @lead-dev — done; reviewed by @reviewer and @frontend-dev, 13 findings fixed, committed as `2c49813`
+- [x] Phase 3: Read-only TUI — @frontend-dev — done; cross-reviewed by @lead-dev, 15 findings fixed, committed as `8771f7c`
 - [x] Phase 1: Foundation — @lead-dev — done; reviewed by @reviewer and @cto, six review fixes applied, committed as `30edb85`
 - [x] Component docs cross-checked against the architecture — @reviewer — six findings, all fixed
 - [x] Spec steps 1–4 + implementation plan — @cto — overview, functional spec, UI design, architecture with six component docs, implementation plan: all approved and committed on branch `todos-v1` as `fee30a2`
@@ -34,6 +34,9 @@ Owner of this file: @pm. Only @pm edits it; ask @pm to add or change items.
 - The shared test fake is a direct in-memory implementation in `internal/service/servicetest`.
 - Reviews of code go into the `reviews/` folder, which git ignores.
 - Commits are made by path, so one track's unfinished work never lands in the other's commit.
+- Our backlog now also lives as GitHub issues 1–14 on `pkieltyka/playg` and its project board, created for dogfooding.
+- Nothing has been pushed, so the pull request views can only be checked against test data for now.
+- When two phases finish together, the developers cross-review each other in addition to @reviewer.
 - Decisions from Peter:
   - One repo and one board per run.
   - The board shows issue cards only and moves them between Status columns.

@@ -40,7 +40,7 @@ func TestOffline_HelpVersionSkillNoService(t *testing.T) {
 	t.Setenv("GH_HOST", "invalid.example")
 	t.Setenv("PATH", t.TempDir())
 	t.Chdir(t.TempDir())
-	for _, args := range [][]string{{"--help"}, {"help"}, {"help", "version"}, {"version"}, {"--version"}, {"skill"}, {}} {
+	for _, args := range [][]string{{"--help"}, {"help"}, {"help", "version"}, {"version"}, {"--version"}, {"skill"}} {
 		out, err, code := execute(context.Background(), args...)
 		if code != 0 || err != "" || out == "" {
 			t.Fatalf("%v: %d %q %q", args, code, out, err)
@@ -72,13 +72,7 @@ func TestVersion_TextAndSkillBytes(t *testing.T) {
 		t.Fatal("skill bytes changed")
 	}
 }
-func TestFoundation_Placeholder(t *testing.T) {
-	out, err, code := execute(context.Background())
-	if code != 0 || err != "" {
-		t.Fatal(code, err)
-	}
-	golden(t, "root.stdout", out)
-}
+
 func TestCommands_ArgumentBounds(t *testing.T) {
 	for _, args := range [][]string{{"version", "extra"}, {"skill", "extra"}, {"unknown"}, {"--unknown"}, {"--repo"}, {"--json"}, {"--json", "skill"}} {
 		out, err, code := execute(context.Background(), args...)

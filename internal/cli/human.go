@@ -176,6 +176,10 @@ type humanColumn struct {
 }
 
 func (r *runtime) table(w io.Writer, cols []humanColumn, rows [][]string, header bool, indent int) {
+	r.tableMeasured(w, cols, rows, rows, header, indent)
+}
+
+func (r *runtime) tableMeasured(w io.Writer, cols []humanColumn, rows, measure [][]string, header bool, indent int) {
 	widths := make([]int, len(cols))
 	active := make([]bool, len(cols))
 	available := max(1, r.width()-indent)
@@ -183,7 +187,7 @@ func (r *runtime) table(w io.Writer, cols []humanColumn, rows [][]string, header
 		active[i] = true
 		widths[i] = max(col.min, ansi.StringWidth(col.header))
 		if !col.grow {
-			for _, row := range rows {
+			for _, row := range measure {
 				widths[i] = max(widths[i], ansi.StringWidth(row[i]))
 			}
 			if col.max > 0 {
@@ -290,6 +294,12 @@ func renderHuman(ctx context.Context, r *runtime, w io.Writer, value any) error 
 	case BoardDTO:
 		r.textLine(w, r.paint("text", fmt.Sprintf("%s (#%d)  %s", markdown.SanitizeLine(v.Project.Title), v.Project.Number, markdown.SanitizeLine(v.Project.URL))))
 		cards := 0
+		allRows := [][]string{}
+		for _, col := range v.Columns {
+			for _, card := range col.Cards {
+				allRows = append(allRows, boardRow(card))
+			}
+		}
 		for _, col := range v.Columns {
 			name := boardStatus(col.Status, true)
 			fmt.Fprintln(w)
@@ -297,9 +307,9 @@ func renderHuman(ctx context.Context, r *runtime, w io.Writer, value any) error 
 			rows := [][]string{}
 			for _, card := range col.Cards {
 				cards++
-				rows = append(rows, []string{fmt.Sprintf("#%d", card.Number), markdown.SanitizeLine(card.Title), joined(card.Labels), joined(card.Assignees)})
+				rows = append(rows, boardRow(card))
 			}
-			r.table(w, []humanColumn{{"", 4, 8, 0, false}, {"", 24, 0, 0, true}, {"", 8, 24, 2, false}, {"", 10, 14, 1, false}}, rows, false, 2)
+			r.tableMeasured(w, []humanColumn{{"", 4, 8, 0, false}, {"", 24, 0, 0, true}, {"", 8, 24, 2, false}, {"", 10, 14, 1, false}}, rows, allRows, false, 2)
 		}
 		if cards == 0 {
 			fmt.Fprintln(w, "No issues on this board.")
@@ -410,6 +420,13 @@ func (r *runtime) body(ctx context.Context, w io.Writer, source string) error {
 		return &domain.Error{Kind: domain.ErrInternal, Message: "could not render Markdown", Err: err}
 	}
 	for _, line := range strings.Split(out, "\n") {
+		if style == markdown.Plain {
+			line = strings.TrimRight(line, " ")
+			if line == "" {
+				fmt.Fprintln(w)
+				continue
+			}
+		}
 		fmt.Fprintln(w, "  "+line)
 	}
 	return nil
@@ -473,4 +490,8 @@ func commentNoun(n int) string {
 
 func (r *runtime) paragraph(w io.Writer, text string) {
 	fmt.Fprintln(w, ansi.Wordwrap(text, r.width(), ""))
+}
+
+func boardRow(card CardDTO) []string {
+	return []string{fmt.Sprintf("#%d", card.Number), markdown.SanitizeLine(card.Title), joined(card.Labels), joined(card.Assignees)}
 }

@@ -1,16 +1,19 @@
 package tui
 
 import (
+	"context"
 	"image/color"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/pkieltyka/todos/internal/markdown"
 )
 
 func TestKeymapSameKeySameAction(t *testing.T) {
@@ -208,4 +211,42 @@ func TestParseOverride(t *testing.T) {
 			t.Errorf("%q → %v %v", in, d, ok)
 		}
 	}
+}
+
+func TestNoColor_plainMarkdownAndASCIIProfile(t *testing.T) {
+	h := newHarness(t, richFixture(), func(_ *harness, d *Deps, _ *Options) { d.Env.NoColor = true })
+	if h.app.theme.MarkdownStyle() != markdown.Plain {
+		t.Fatal("Markdown not Plain with --no-color")
+	}
+	h.send(tea.BackgroundColorMsg{Color: color.White}) // a later theme change keeps it
+	if h.app.theme.MarkdownStyle() != markdown.Plain {
+		t.Fatal("background answer dropped --no-color")
+	}
+	if n := len(programOptions(context.Background(), Env{NoColor: true})); n != 2 {
+		t.Fatalf("%d program options, want the colour profile too", n)
+	}
+	if n := len(programOptions(context.Background(), Env{})); n != 1 {
+		t.Fatalf("%d program options without --no-color", n)
+	}
+}
+
+// Dogfood (Phase 4): while typing in the filter the footer shows the
+// filter's keys, not navigation keys that would be typed instead.
+func TestFooter_textModeShowsFilterKeys(t *testing.T) {
+	h := newHarness(t, richFixture())
+	h.press("/")
+	lines := strings.Split(h.view(), "\n")
+	footer := lines[len(lines)-1]
+	if !strings.Contains(footer, "enter keep filter") || !strings.Contains(footer, "esc clear filter") || strings.Contains(footer, "j/k") {
+		t.Fatalf("footer while filtering: %q", footer)
+	}
+}
+
+// Dogfood (Phase 4): at wide widths the spelled-out time is not truncated.
+func TestIssueList_wideUpdatedFits(t *testing.T) {
+	h := newHarness(t, richFixture())
+	h.advance(10 * 24 * time.Hour * 30) // "10 months ago"
+	h.size(140, 40)
+	h.contains("10 months ago")
+	h.lacks("months a…")
 }

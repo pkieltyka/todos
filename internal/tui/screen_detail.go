@@ -287,7 +287,7 @@ func (s *IssueDetail) Sync(c *Ctx) {
 			panelRow(t, "Author", t.text().Render(author(i.Author))),
 			panelRow(t, "Opened", t.text().Render(agoLong(c.Now, i.CreatedAt))),
 			panelRow(t, "Updated", t.text().Render(agoLong(c.Now, i.UpdatedAt))),
-			panelRow(t, "State", issueStateWord(t, i)),
+			panelRow(t, "State", issueStateShort(t, i)),
 			panelRow(t, "Assignees", assignees),
 		}
 		for k, l := range i.Labels {

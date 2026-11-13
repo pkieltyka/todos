@@ -594,3 +594,85 @@ func TestTooSmall_keepsStateAndRecovers(t *testing.T) {
 	}
 	h.contains("3/4")
 }
+
+// Dogfood (Phase 4): the side panel's state fits its 32 cells.
+func TestSidePanel_notPlannedStateFits(t *testing.T) {
+	h := newHarness(t, richFixture())
+	h.press("s", "j") // closed: #3 (completed), then #2 (not planned)
+	h.size(140, 40)
+	h.press("enter")
+	h.contains("│ State      ⊘ Not planned")
+	h.lacks("pla…")
+}
+
+// Dogfood (Phase 4): Bubble Tea redraws only on messages, so a clock tick
+// keeps "synced 12s ago" moving while idle. It is scheduled at start and
+// re-scheduled by every tick.
+func TestClock_ticksKeepRelativeTimesMoving(t *testing.T) {
+	h := newHarness(t, richFixture())
+	pending := func() int {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		n := 0
+		for _, m := range h.timers {
+			if _, ok := m.(clockTickMsg); ok {
+				n++
+			}
+		}
+		return n
+	}
+	if pending() != 1 {
+		t.Fatalf("%d clock ticks scheduled at start", pending())
+	}
+	h.advance(5 * time.Second)
+	h.fire(clockTickMsg{})
+	if pending() != 1 {
+		t.Fatal("clock tick not re-scheduled")
+	}
+	h.contains("synced 5s ago")
+}
+
+func (h *harness) pendingClock() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n := 0
+	for _, m := range h.timers {
+		if _, ok := m.(clockTickMsg); ok {
+			n++
+		}
+	}
+	return n
+}
+
+// Review (Phase 4): while the terminal is too small the clock chain stops,
+// so there is no permanent wakeup with nothing to draw...
+func TestClock_stopsWhileTooSmall(t *testing.T) {
+	h := newHarness(t, richFixture())
+	h.size(70, 20)
+	h.fire(clockTickMsg{})
+	if n := h.pendingClock(); n != 0 {
+		t.Fatalf("%d clock ticks scheduled while too small", n)
+	}
+}
+
+// ...and a resize that fits again re-arms it, exactly once, so relative
+// times do not freeze.
+func TestClock_rearmsWhenFitsAgain(t *testing.T) {
+	h := newHarness(t, richFixture())
+	h.size(70, 20)
+	h.fire(clockTickMsg{})
+	h.size(80, 24)
+	if n := h.pendingClock(); n != 1 {
+		t.Fatalf("%d clock ticks after fitting again", n)
+	}
+	h.size(100, 30) // already running: no second chain
+	if n := h.pendingClock(); n != 1 {
+		t.Fatalf("%d clock ticks after another resize", n)
+	}
+	h.advance(3 * time.Second)
+	h.fire(clockTickMsg{})
+	h.contains("synced 3s ago")
+	if n := h.pendingClock(); n != 1 {
+		t.Fatalf("%d clock ticks after a tick", n)
+	}
+}

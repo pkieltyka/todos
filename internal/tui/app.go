@@ -11,6 +11,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/pkieltyka/todos/internal/domain"
 	"github.com/pkieltyka/todos/internal/markdown"
@@ -34,6 +35,10 @@ type Deps struct {
 type Env struct {
 	Theme  string   // TODOS_THEME as read by cli: "", "light" or "dark"
 	Editor []string // shlex.Split($VISUAL, else $EDITOR); nil when both are empty
+	// NoColor is the global --no-color flag. NO_COLOR in the environment is
+	// honoured by Bubble Tea's own profile detection; the flag reaches the
+	// TUI here, without changing the process environment.
+	NoColor bool
 }
 
 // Options select what the TUI shows.
@@ -55,6 +60,7 @@ const (
 	toastFor         = 6 * time.Second
 	resizeSettle     = 100 * time.Millisecond
 	spinEvery        = 100 * time.Millisecond
+	clockEvery       = time.Second
 	renderBatch      = 16
 )
 
@@ -100,6 +106,7 @@ type App struct {
 	rendering  map[markdown.Key]bool
 	lastRender map[lastKey]lastOut
 	renderVer  uint64
+	clockOn    bool // a clock tick is scheduled
 }
 
 type lastKey struct {
@@ -143,6 +150,7 @@ func New(deps Deps, opts Options) *App {
 		a.theme = NewTheme(dark)
 		a.themeFixed = true
 	}
+	a.theme.plain = deps.Env.NoColor
 	a.tabs[ViewIssues] = []Screen{newIssueList()}
 	a.tabs[ViewPRs] = []Screen{newPRList()}
 	a.tabs[ViewBoard] = []Screen{newBoard()}
@@ -162,13 +170,24 @@ func run(ctx context.Context, deps Deps, opts Options, progOpts ...tea.ProgramOp
 	defer cancel()
 	a := New(deps, opts)
 	a.ctx = ctx
-	_, err := tea.NewProgram(a, append([]tea.ProgramOption{tea.WithContext(ctx)}, progOpts...)...).Run()
+	_, err := tea.NewProgram(a, append(programOptions(ctx, deps.Env), progOpts...)...).Run()
 	return err
+}
+
+// programOptions are the Bubble Tea options for an environment. With
+// --no-color the ASCII profile drops every colour (bold and other attributes
+// stay, so the screen keeps its structure); glyphs carry every meaning (UI 6).
+func programOptions(ctx context.Context, env Env) []tea.ProgramOption {
+	opts := []tea.ProgramOption{tea.WithContext(ctx)}
+	if env.NoColor {
+		opts = append(opts, tea.WithColorProfile(colorprofile.ASCII))
+	}
+	return opts
 }
 
 // Init starts the first loads; the first frame never waits for them.
 func (a *App) Init() tea.Cmd {
-	cmds := []tea.Cmd{a.loadSession(), a.loadBoard(false, ReasonInitial), a.scheduleAuto()}
+	cmds := []tea.Cmd{a.loadSession(), a.loadBoard(false, ReasonInitial), a.scheduleAuto(), a.clockCmd()}
 	if !a.themeFixed {
 		cmds = append(cmds, tea.RequestBackgroundColor)
 	}
@@ -295,13 +314,17 @@ func (a *App) update(msg tea.Msg) tea.Cmd {
 		first := a.width == 0
 		a.width, a.height = m.Width, m.Height
 		a.frame, a.fits = ComputeFrame(m.Width, m.Height)
+		var clock tea.Cmd
+		if a.fits && !a.clockOn {
+			clock = a.clockCmd() // re-arm after a too-small spell
+		}
 		if first {
-			return nil
+			return clock
 		}
 		a.frozen = true
 		a.resizeGen++
 		gen := a.resizeGen
-		return a.deps.Tick(resizeSettle, func(time.Time) tea.Msg { return resizeSettledMsg{gen} })
+		return tea.Batch(clock, a.deps.Tick(resizeSettle, func(time.Time) tea.Msg { return resizeSettledMsg{gen} }))
 	case resizeSettledMsg:
 		if m.gen == a.resizeGen {
 			a.frozen = false
@@ -310,6 +333,7 @@ func (a *App) update(msg tea.Msg) tea.Cmd {
 	case tea.BackgroundColorMsg:
 		if !a.themeFixed {
 			a.theme = NewTheme(m.IsDark())
+			a.theme.plain = a.deps.Env.NoColor
 		}
 		return nil
 	case tea.KeyPressMsg:
@@ -328,6 +352,13 @@ func (a *App) update(msg tea.Msg) tea.Cmd {
 		return nil
 	case autoRefreshMsg:
 		return a.onAuto(m)
+	case clockTickMsg:
+		a.clockOn = false
+		if !a.fits {
+			return nil // nothing to draw: the chain stops, a fitting resize re-arms it
+		}
+		return a.clockCmd() // the redraw after this Update is the point
+
 	case toastExpireMsg:
 		if a.toast != nil && a.toast.ID == m.id {
 			a.toast = nil
@@ -666,6 +697,12 @@ func (a *App) toastInfo(text string) tea.Cmd {
 	return a.deps.Tick(toastFor, func(time.Time) tea.Msg { return toastExpireMsg{id} })
 }
 
+// clockCmd schedules the next clock tick.
+func (a *App) clockCmd() tea.Cmd {
+	a.clockOn = true
+	return a.deps.Tick(clockEvery, func(time.Time) tea.Msg { return clockTickMsg{} })
+}
+
 // ---- spinner ----
 
 // spinCmd keeps one tick chain alive while anything is loading.
@@ -903,6 +940,12 @@ func (a *App) footer(c *Ctx, s Screen) string {
 // hints renders as many footer key hints as fit (tui.md 9.3).
 func (a *App) hints(c *Ctx, s Screen, w int) string {
 	t := c.Theme
+	if len(a.overlays) == 0 && s.Mode() == ModeText {
+		// Typing in the filter: letters are text, so navigation keys would
+		// be wrong here (dogfood, Phase 4).
+		return " " + t.accent().Render("enter") + " " + t.muted().Render("keep filter") + "  " +
+			t.accent().Render("esc") + " " + t.muted().Render("clear filter")
+	}
 	var acts []Action
 	ctxID := s.ID()
 	if n := len(a.overlays); n > 0 {

@@ -16,6 +16,7 @@ type Theme struct {
 	Open, Done, Inactive, Pending, Error     color.Color
 
 	dimmed bool
+	plain  bool // --no-color: Markdown renders with the Plain style
 }
 
 // NewTheme builds the roles for a dark or light background (UI 6.1).
@@ -75,6 +76,9 @@ func LabelColor(t Theme, hex string) color.Color {
 
 // MarkdownStyle is the glamour style matching the theme.
 func (t Theme) MarkdownStyle() markdown.Style {
+	if t.plain {
+		return markdown.Plain
+	}
 	if t.Dark {
 		return markdown.Dark
 	}

@@ -200,7 +200,7 @@ func issueColumns(w int) []Placed {
 		{ID: ColLabels, Min: 10, Max: 24, Drop: 4},
 		{ID: ColAssignees, Min: 10, Max: 14, Drop: 3},
 		{ID: ColStatus, Min: 12, Max: 14, Drop: 5, MinWidth: 120},
-		{ID: ColUpdated, Min: 4, Max: 12, Drop: 2},
+		{ID: ColUpdated, Min: 4, Max: 14, Drop: 2}, // "10 months ago" at ≥ 120
 	}, w)
 }
 

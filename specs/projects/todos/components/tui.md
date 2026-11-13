@@ -78,6 +78,7 @@ type Deps struct {
 type Env struct {
     Theme  string   // TODOS_THEME as read by cli: "", "light" or "dark"
     Editor []string // shlex.Split($VISUAL, else $EDITOR); nil when both are empty
+    NoColor bool    // --no-color: Run forces colorprofile.ASCII; Markdown uses Plain
 }
 
 type Options struct {
@@ -333,6 +334,7 @@ feed the asOf rule (7.2).
 | `renderedMsg{key markdown.Key, out string, err}` | `Renderer.Render` Cmd | App → the screens or editor holding that key |
 | `resizeSettledMsg{gen}` | `tea.Tick(100ms)` after a resize | App: request renders at the new width if `gen` is current |
 | `autoRefreshMsg{gen}` | `tea.Tick(60s)` | App (7.7) |
+| `clockTickMsg{}` | `Deps.Tick(1s)`, started by `Init`, re-scheduled by every tick | App: nothing but a redraw. Bubble Tea redraws only on messages, so without it "synced 12s ago" and every relative time froze while idle (dogfood) |
 | `toastExpireMsg{id}` | `tea.Tick(6s)` for confirmation toasts | App: clear the toast if `id` is current |
 | `editorDoneMsg{owner, path, err}` | `tea.ExecProcess` callback | the editor's owner (14.3) |
 | `editorReadMsg{owner, text, err}` | Cmd that reads and removes the temp file | the editor |
@@ -1080,6 +1082,8 @@ none of them can bind a key the keymap does not know.
 
 ### 9.3 Footer and help
 
+- **Footer in text mode** (typing in a filter): `enter keep filter  esc clear
+  filter`, because letters are text there (dogfood).
 - **Footer:** `target.Actions(ctx)` in priority order, rendered as `key desc`
   pairs with `HelpText`, as many as fit the footer width minus the position
   text (UI 1). When a toast is showing, it replaces them.
@@ -1165,7 +1169,7 @@ func Fit(cols []Col, width int) []Placed
 | state glyph | 2 | 2 | 0 | |
 | number | 6 | 7 | 0 | |
 | title | 24 | flex | 0 | |
-| updated | 4 | 12 | 2 | |
+| updated | 4 | 14 | 2 | |
 | assignees | 10 | 14 | 3 | |
 | labels | 10 | 24 | 4 | |
 | board status | 12 | 14 | 5 | 120 |
@@ -1177,7 +1181,7 @@ func Fit(cols []Col, width int) []Placed
 | number | 6 | 7 | 0 | |
 | title | 24 | flex | 0 | |
 | checks | 2 | 9 | 1 | |
-| updated | 4 | 12 | 2 | |
+| updated | 4 | 14 | 2 | |
 | review | 10 | 18 | 3 | |
 | branch | 12 | 24 | 4 | |
 | author | 10 | 14 | 5 | 100 |
@@ -1187,7 +1191,7 @@ forms below 140 columns and words at 140 or more (UI 3.3).
 
 ### 10.3 Detail side panel
 
-When `Body.W >= 120`, the detail screens draw a 32-cell panel on the right
+When `Body.W >= 120`, the detail screens draw a 32-cell panel on the right (its State row uses the short form `○ Open`, `✓ Closed`, `⊘ Not planned`, which fits; dogfood)
 with a 1-cell `│` separator. The content area is `Body.W - 33` wide. Below
 120, the metadata block is stacked above the rule (UI 3.2). Markdown is
 rendered at `min(content width, 100)` (UI 1).

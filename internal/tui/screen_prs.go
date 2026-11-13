@@ -211,7 +211,7 @@ func prColumns(w int) []Placed {
 		{ID: ColBranch, Min: 12, Max: 24, Drop: 4},
 		{ID: ColReview, Min: 10, Max: 19, Drop: 3},
 		{ID: ColChecks, Min: 2, Max: 9, Drop: 1},
-		{ID: ColUpdated, Min: 4, Max: 12, Drop: 2},
+		{ID: ColUpdated, Min: 4, Max: 14, Drop: 2},
 		{ID: ColAuthor, Min: 10, Max: 14, Drop: 5, MinWidth: 100},
 	}, w)
 }

@@ -15,6 +15,7 @@ import (
 
 	"github.com/pkieltyka/todos/internal/domain"
 	"github.com/pkieltyka/todos/internal/markdown"
+	"github.com/pkieltyka/todos/internal/tui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -46,7 +47,7 @@ func normaliseDeps(deps Dependencies) Dependencies {
 func NewRoot(deps Dependencies) *cobra.Command {
 	deps = normaliseDeps(deps)
 	var asJSON, showVersion bool
-	root := &cobra.Command{Use: "todos", Short: "GitHub issues and project boards in your terminal", Long: "todos with no arguments opens the TUI (not built yet).\nWork with one GitHub repository and one project board.", SilenceUsage: true, SilenceErrors: true, Args: cobra.NoArgs}
+	root := &cobra.Command{Use: "todos", Short: "GitHub issues and project boards in your terminal", Long: "todos with no arguments opens the TUI (Issues view).\nWork with one GitHub repository and one project board.", SilenceUsage: true, SilenceErrors: true, Args: cobra.NoArgs}
 	root.CompletionOptions.DisableDefaultCmd = true
 	root.SetIn(deps.In)
 	root.SetOut(deps.Out)
@@ -76,7 +77,8 @@ func NewRoot(deps Dependencies) *cobra.Command {
 		if asJSON {
 			return &domain.Error{Kind: domain.ErrUsage, Message: "--json cannot be used with the TUI"}
 		}
-		return writeOutput(deps.Out, []byte("The TUI is not built yet.\n"))
+		r := tuiRuntime(cmd, deps)
+		return r.startTUI(cmd.Context(), tui.ViewIssues)
 	}
 	root.AddCommand(&cobra.Command{Use: "version", Short: "Print the todos version", GroupID: "other", Args: cobra.NoArgs, Example: "  todos version\n  todos version --json", RunE: func(*cobra.Command, []string) error { return writeVersion() }})
 	root.AddCommand(&cobra.Command{Use: "skill", Short: "Print the placeholder agent skill", GroupID: "other", Args: cobra.NoArgs, Example: "  todos skill\n  todos skill > SKILL.md", RunE: func(*cobra.Command, []string) error {
@@ -89,6 +91,7 @@ func NewRoot(deps Dependencies) *cobra.Command {
 		return writeOutput(deps.Out, deps.Skill)
 	}})
 	addReadCommands(root, deps, writeVersion)
+	addTUICommand(root, deps, writeVersion)
 	root.AddGroup(&cobra.Group{ID: "other", Title: "Other commands:"})
 	return root
 }
@@ -261,4 +264,35 @@ func exitCode(err error, interrupted bool) int {
 	default:
 		return 1
 	}
+}
+
+func tuiRuntime(cmd *cobra.Command, deps Dependencies) *runtime {
+	r := &runtime{deps: deps, mode: Human}
+	r.global.Repo, _ = cmd.Flags().GetString("repo")
+	r.global.Project, _ = cmd.Flags().GetString("project")
+	r.global.JSON, _ = cmd.Flags().GetBool("json")
+	r.global.NoColor, _ = cmd.Flags().GetBool("no-color")
+	return r
+}
+func addTUICommand(root *cobra.Command, deps Dependencies, version func() error) {
+	cmd := &cobra.Command{Use: "tui [issues|prs|board]", Short: "Open the terminal UI", GroupID: "other", Args: cobra.MaximumNArgs(1), Example: "  todos tui\n  todos tui board --repo pkieltyka/playg", RunE: func(cmd *cobra.Command, args []string) error {
+		show, _ := cmd.Flags().GetBool("version")
+		if show {
+			return version()
+		}
+		view := tui.ViewIssues
+		if len(args) > 0 {
+			switch args[0] {
+			case "issues":
+			case "prs":
+				view = tui.ViewPRs
+			case "board":
+				view = tui.ViewBoard
+			default:
+				return usage("TUI view must be issues, prs or board")
+			}
+		}
+		return tuiRuntime(cmd, deps).startTUI(cmd.Context(), view)
+	}}
+	root.AddCommand(cmd)
 }

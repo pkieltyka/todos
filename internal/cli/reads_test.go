@@ -429,7 +429,7 @@ func TestNoArgs_IgnoresProcessArgs(t *testing.T) {
 	os.Args = []string{"test", "--unknown-process-flag"}
 	defer func() { os.Args = saved }()
 	out, stderr, code := execute(context.Background())
-	if code != 0 || stderr != "" || out != "The TUI is not built yet.\n" {
+	if code != 2 || out != "" || !strings.Contains(stderr, "TUI requires a terminal") {
 		t.Fatal(code, out, stderr)
 	}
 }

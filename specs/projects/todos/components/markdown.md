@@ -275,7 +275,8 @@ The `Render(src, width, s)` pipeline:
 2. `clean := rewriteImages(SanitizeBody(src))`.
 3. Take the instance for `(width, s)`, creating it if needed, then lock it and
    call `r.Render(clean)`.
-4. If `guard(out)` fails, `out` becomes the plain fallback (5).
+4. If the source has a blockquote, repair glamour's quote wrapping (below).
+   If `guard(out)` fails, `out` becomes the plain fallback (5).
 5. With `Plain`, strip every escape sequence (`ansi.Strip`). glamour's NoTTY
    style still emits OSC 8 hyperlinks, as do both of its hyperlink modes, and
    `Plain` is what `NO_COLOR` and `--no-color` select. Link text and URL stay
@@ -293,6 +294,26 @@ The `Render(src, width, s)` pipeline:
 The TUI keeps bodies and comments under separate keys, so a new comment
 renders only itself. The CLI renders once per command and needs no cache, but
 uses the same `Renderer`.
+
+---
+
+### 7.1 Blockquote repair (found in dogfooding)
+
+glamour sometimes hard-wraps the last word of a quoted line onto a line of
+its own **without** the `│ ` prefix, or with only the outer prefixes in a
+nested quote. On real data, at 80 columns, issue #7's quote showed `truth` on
+a bare line. Narrowing the wrap width does not avoid it, so after rendering:
+
+```go
+func repairQuotes(out string, width int) string
+```
+
+A text line with fewer quote bars than the text line directly above it is an
+orphan. glamour separates a nested quote from the outer text with a bar-only
+line, so real content never matches. The orphan gets the line above's prefix,
+cut with its styling (`ansi.Cut`), followed by its own text, padded back to
+`width`. It runs only when the source has a blockquote (`quoteDepth`, from
+the same goldmark parse as the `<img>` rewrite).
 
 ---
 
@@ -348,6 +369,7 @@ All tests are table tests or fuzz tests, with no network and no terminal.
 - `TestRender_markdownImageShowsLink`
 - `TestRender_htmlImageShowsLink`
 - `TestRender_widthEqualsWrap` (no line wider than `width`, at 40, 80, 100)
+- `TestRender_quoteLinesKeepTheirPrefix` (every width 30–100, depth 1 and 2, Plain and Dark: every text line keeps all its bars and its width, no word lost)
 - `TestRender_plainHasNoSGR`
 - `TestRender_plainHasNoEscapes` (NO_COLOR: no OSC 8 either; link text and URL kept)
 - `TestRender_bidiReferencesNeutralised` (`&#8238;` and friends)
