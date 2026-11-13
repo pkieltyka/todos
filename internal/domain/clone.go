@@ -15,6 +15,11 @@ func CloneIssue(v Issue) Issue {
 	v.StateReason = clonePtr(v.StateReason)
 	v.Author = clonePtr(v.Author)
 	v.Assignees = cloneSlice(v.Assignees)
+	ids := make(map[string]NodeID, len(v.AssigneeIDs))
+	for login, id := range v.AssigneeIDs {
+		ids[login] = id
+	}
+	v.AssigneeIDs = ids
 	v.Labels = cloneSlice(v.Labels)
 	v.Milestone = clonePtr(v.Milestone)
 	v.ClosedAt = clonePtr(v.ClosedAt)

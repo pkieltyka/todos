@@ -386,18 +386,6 @@ func TestDoctor_FirstThreeDetermineVerdict(t *testing.T) {
 		t.Fatal("did not retain full failed report")
 	}
 }
-func TestFake_QuickAddDeferred(t *testing.T) {
-	f := fresh()
-	before, _ := f.ListIssues(context.Background(), domain.IssueFilter{State: "all"}, domain.PageRequest{})
-	_, err := f.PlanQuickAdd(context.Background(), "- task", domain.QuickAddOptions{})
-	wantKind(t, err, domain.ErrInternal)
-	_, err = f.RunQuickAdd(context.Background(), domain.QuickAddPlan{}, domain.QuickAddRunOptions{})
-	wantKind(t, err, domain.ErrInternal)
-	after, _ := f.ListIssues(context.Background(), domain.IssueFilter{State: "all"}, domain.PageRequest{})
-	if !reflect.DeepEqual(before, after) {
-		t.Fatal("deferred quick add changed data")
-	}
-}
 func TestFake_ConcurrentReadsAndExternalEdits(t *testing.T) {
 	f := fresh()
 	var wg sync.WaitGroup

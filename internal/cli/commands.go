@@ -56,7 +56,7 @@ func addReadCommands(root *cobra.Command, deps Dependencies, version func() erro
 	}}
 	root.AddCommand(pr)
 	parents["pr"] = pr
-	for _, spec := range commandSpecs() {
+	for _, spec := range append(commandSpecs(), writeCommandSpecs()...) {
 		parent := root
 		use := spec.Use
 		if len(use) > 6 && use[:6] == "board " {
@@ -82,7 +82,11 @@ func addReadCommands(root *cobra.Command, deps Dependencies, version func() erro
 	}
 }
 func bindCommand(parent *cobra.Command, spec CommandSpec, r *runtime) *cobra.Command {
-	c := &cobra.Command{Use: spec.Use, Short: spec.Short, Example: spec.Example, GroupID: spec.Group, Args: cobra.RangeArgs(spec.MinArgs, spec.MaxArgs)}
+	argsCheck := cobra.RangeArgs(spec.MinArgs, spec.MaxArgs)
+	if spec.MaxArgs < 0 {
+		argsCheck = cobra.MinimumNArgs(spec.MinArgs)
+	}
+	c := &cobra.Command{Use: spec.Use, Short: spec.Short, Example: spec.Example, GroupID: spec.Group, Args: argsCheck}
 	if spec.Flags != nil {
 		spec.Flags(c)
 	}
@@ -118,7 +122,10 @@ func bindCommand(parent *cobra.Command, spec CommandSpec, r *runtime) *cobra.Com
 	parent.AddCommand(c)
 	return c
 }
-func validateFlags(cmd *cobra.Command, _ []string) error {
+func validateFlags(cmd *cobra.Command, args []string) error {
+	if err := validateWriteFlags(cmd, args); err != nil {
+		return err
+	}
 	if cmd.Flags().Lookup("limit") != nil {
 		limit, _ := cmd.Flags().GetInt("limit")
 		all, _ := cmd.Flags().GetBool("all")

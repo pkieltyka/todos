@@ -267,6 +267,9 @@ func (r *runtime) textLine(w io.Writer, s string) {
 }
 func renderHuman(ctx context.Context, r *runtime, w io.Writer, value any) error {
 	switch v := value.(type) {
+	case ChangeDTO, CommentResultDTO, DeletedDTO:
+		return renderChange(r, w, value)
+
 	case IssuesDTO:
 		if len(v.Issues) == 0 {
 			fmt.Fprintf(w, "No %s.\n", r.noun(false))

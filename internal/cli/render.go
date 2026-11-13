@@ -72,6 +72,9 @@ func summary(w io.Writer, shown, total int, truncated bool) {
 }
 func renderPiped(ctx context.Context, r *runtime, w io.Writer, value any) error {
 	switch v := value.(type) {
+	case ChangeDTO, CommentResultDTO, DeletedDTO:
+		return renderChange(r, w, value)
+
 	case IssuesDTO:
 		if len(v.Issues) == 0 {
 			fmt.Fprintln(w, "No issues found.")

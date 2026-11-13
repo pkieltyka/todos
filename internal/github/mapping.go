@@ -135,7 +135,7 @@ func placement(p rawPlacement) domain.Placement {
 	return out
 }
 func issue(v rawIssue, selected domain.NodeID) domain.Issue {
-	out := domain.Issue{NodeID: v.ID, Number: v.Number, Title: v.Title, State: domain.IssueState(strings.ToLower(v.State)), Author: login(v.Author), Assignees: []string{}, Labels: []domain.Label{}, CommentCount: v.Comments.TotalCount, CreatedAt: v.CreatedAt.UTC(), UpdatedAt: v.UpdatedAt.UTC(), ClosedAt: utc(v.ClosedAt), URL: v.URL, ViewerCanUpdate: v.ViewerCanUpdate, ViewerCanDelete: v.ViewerCanDelete}
+	out := domain.Issue{NodeID: v.ID, Number: v.Number, Title: v.Title, State: domain.IssueState(strings.ToLower(v.State)), Author: login(v.Author), Assignees: []string{}, AssigneeIDs: map[string]domain.NodeID{}, Labels: []domain.Label{}, CommentCount: v.Comments.TotalCount, CreatedAt: v.CreatedAt.UTC(), UpdatedAt: v.UpdatedAt.UTC(), ClosedAt: utc(v.ClosedAt), URL: v.URL, ViewerCanUpdate: v.ViewerCanUpdate, ViewerCanDelete: v.ViewerCanDelete}
 	switch v.StateReason {
 	case "COMPLETED", "NOT_PLANNED", "REOPENED":
 		r := domain.StateReason(strings.ToLower(v.StateReason))
@@ -143,6 +143,7 @@ func issue(v rawIssue, selected domain.NodeID) domain.Issue {
 	}
 	for _, a := range v.Assignees.Nodes {
 		out.Assignees = append(out.Assignees, a.Login)
+		out.AssigneeIDs[a.Login] = a.ID
 	}
 	for _, l := range v.Labels.Nodes {
 		out.Labels = append(out.Labels, label(l))

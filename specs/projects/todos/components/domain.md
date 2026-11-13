@@ -44,6 +44,7 @@ type Issue struct {
     StateReason *StateReason
     Author *string
     Assignees []string
+    AssigneeIDs map[string]NodeID // canonical login -> ID from this issue; internal only
     Labels []Label
     Milestone *string
     CommentCount int

@@ -51,6 +51,10 @@ func TestFake_CreateEditAndDelete(t *testing.T) {
 }
 func TestFake_AssigneeAndLabelSetSemantics(t *testing.T) {
 	f := fresh()
+	f.Mutate(func(x *servicetest.Fixture) {
+		x.Users = append(x.Users, domain.User{Login: "absent", NodeID: "ABSENT"})
+		x.Labels = append(x.Labels, domain.Label{Name: "absent", NodeID: "ABSENT_LABEL"})
+	})
 	ctx := context.Background()
 	before, _ := f.GetIssue(ctx, 6)
 	change, err := f.UpdateAssignees(ctx, 6, []string{"@me", "pkieltyka"}, []string{"reviewer", "absent"})
@@ -289,4 +293,31 @@ func TestFake_StatusResolvesCanonicalOption(t *testing.T) {
 	wantKind(t, err, domain.ErrInvalidInput)
 	_, err = f.SetStatus(ctx, 1, pointer("unknown"))
 	wantKind(t, err, domain.ErrInvalidInput)
+}
+
+func TestFake_RemovesDepartedAssigneeAndDeletedLabel(t *testing.T) {
+	f := fresh()
+	f.Mutate(func(x *servicetest.Fixture) {
+		x.Users = nil
+		x.Labels = nil
+		for j := range x.Issues {
+			if x.Issues[j].Issue.Number == 6 {
+				x.Issues[j].Issue.Assignees = []string{"Departed"}
+				x.Issues[j].Issue.AssigneeIDs = map[string]domain.NodeID{"Departed": "DEPARTED"}
+				x.Issues[j].Issue.Labels = []domain.Label{{Name: "deleted", NodeID: "DELETED"}}
+			}
+		}
+	})
+	c, e := f.UpdateAssignees(context.Background(), 6, nil, []string{"DEPARTED"})
+	if e != nil || !c.Changed || len(c.Issue.Assignees) > 0 || len(c.Issue.AssigneeIDs) > 0 {
+		t.Fatal(c, e)
+	}
+	c, e = f.UpdateLabels(context.Background(), 6, nil, []string{"deleted"})
+	if e != nil || !c.Changed || len(c.Issue.Labels) > 0 {
+		t.Fatal(c, e)
+	}
+	_, e = f.UpdateAssignees(context.Background(), 6, nil, []string{"typo"})
+	wantKind(t, e, domain.ErrInvalidInput)
+	_, e = f.UpdateLabels(context.Background(), 6, nil, []string{"typo"})
+	wantKind(t, e, domain.ErrInvalidInput)
 }

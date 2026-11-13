@@ -110,6 +110,7 @@ func ParseProjectRef(text string, repo domain.RepoRef) (domain.ProjectRef, error
 - RefreshMetadata invalidates memoised metadata/session, calls backend.RefreshCredentials, then Session; a failed operation is never replayed.
 - Unknown name: refresh that metadata once before invalid_input. No automatic query/mutation retries.
 - Match assignees case-insensitively after expanding @me; deduplicate before the10-assignee check.
+- Removals resolve against the fresh issue first: use its AssigneeIDs (canonical login keys) or Label.NodeID, including departed users/deleted labels. Never resolve a present removal ID through repository metadata. For absent names only, validate against repository metadata (refresh once on unknown): known means no-op, unknown means invalid_input. Validate the entire picker delta before any write; additions retain full repository validation.
 - Labels must already exist, matching exact names. Status exact name first, then unique EqualFold match.
 - Reject ambiguous option matches, add/remove overlap, blank title, invalid UTF8 and title>256 code points before writing.
 - Status!=nil implies AddToBoard=true; AddToBoard=true with nil Status is a real No status placement.
@@ -225,16 +226,16 @@ Board algorithm:
 
 ## Mutation algorithms
 
-Common order: Session -> feature checks -> validate all names/statuses -> fresh target by number -> no-op/diff -> requested writes.
+Common order: Session -> feature checks -> validate additions/statuses -> fresh target by number -> resolve removals from issue, validating only absent names against repository metadata -> no-op/diff -> requested writes.
 No per-issue lock or service-wide semaphore is introduced. TUI queues provide ordering.
 
 | Service operation | Writes and success rules |
 |---|---|
 | CreateIssue | Validate entire input first; CreateIssue with IDs; verify assignments; if AddToBoard, add then set/clear requested status. Ordinary nil Status + AddToBoard=false does not place. |
 | EditIssue | At least one pointer set; send only supplied title/body. Compare current values for Changed=false. TUI owns best-effort title/body conflict check. |
-| UpdateAssignees | Remove present requested removals, then add absent requested additions; validate final unique count<=10. Verify returned memberships. One call per picker apply. |
+| UpdateAssignees | Resolve removal IDs from the issue itself (not the assignable-user list); absent but repository-known removals are no-ops. Remove present requested removals, then add absent requested additions; validate final unique count<=10. Verify returned memberships. One call per picker apply. |
 | Reassign | Replace assigneeIds only in UpdateIssue; verify final exact set. Empty list is allowed internally to remove all, although CLI requires login(s). |
-| UpdateLabels | Remove then add delta mutations, never replace unrelated issue fields or create labels. |
+| UpdateLabels | Resolve present removal IDs from Issue.Labels; validate only absent removal names against repository labels. Remove then add delta mutations, never replace unrelated issue fields or create labels. |
 | Comment | Reject blank body; AddComment once; return summary and new comment. |
 | Close | Already closed -> Changed=false, no comment. Otherwise optional Comment, then CloseIssue with completed/not-planned. |
 | Reopen | Already open -> Changed=false; otherwise ReopenIssue. |
@@ -243,6 +244,7 @@ No per-issue lock or service-wide semaphore is introduced. TUI queues provide or
 | BoardAdd | With status delegates SetStatus. Nil preserves existing active status; archived restores its existing status; genuinely new card is cleared if a project workflow gave it a default. |
 | RemoveFromBoard | Remove the selected membership, active or archived; absent is a no-op. |
 
+- `todos unassign ISSUE` reads the current names and passes them as removals; the service freshly reads their issue-owned IDs, so an empty assignable-user list never blocks removing current assignees.
 - All membership lookups stop at100; use node/item/field/option IDs inside Backend.
 - Restoring archived membership uses UnarchiveProjectItem; confirmed restoration records added_to_board.
 - Adding missing membership records added_to_board; then status failure is partial, no rollback.
@@ -530,7 +532,7 @@ No x/sys, file-lock package or conflict-token subsystem is added.
 | Metadata | TestMetadata_TTLAndCopies, TestMetadata_ConcurrentFillsNoHeldNetworkLock, TestRefreshMetadata_NewCredentialState |
 | Resolution | TestBoard_ExplicitRememberedLinkedPrecedence, TestBoard_NoBoardCandidatesDiscriminator, TestBoard_WrongStatusType, TestBoardUse_PersistBeforeSelection, TestProjectRef_UserOrgAndWrongHost |
 | Reads | TestReads_OnePageRawCursor, TestIssues_MineExpandsMe, TestPRs_MineHasNoServerAuthorFilter, TestIssueRead_BoardFailureNonfatal, TestBoard_1000Scan500DisplayAndHidden |
-| Validation | TestNames_AllValidatedBeforeWrite, TestNames_RefreshUnknownOnce, TestAssignees_DedupMax10, TestStatus_ExactThenUniqueFold, TestEdit_OnlySuppliedFields |
+| Validation | TestNames_AllValidatedBeforeWrite, TestNames_RefreshUnknownOnce, TestAssignees_DedupMax10, TestRemovals_DepartedAssigneeUsesIssueID, TestRemovals_DeletedLabelUsesIssueID, TestRemovals_AbsentKnownNoOpUnknownRejectsBeforeAnyWrite, TestRemovals_DoNotRelaxAdditions, TestRemovals_MixedDeltasExpandMeAndPreservePartial, TestStatus_ExactThenUniqueFold, TestEdit_OnlySuppliedFields |
 | Mutations | TestAssignment_SilentIgnoreForbidden, TestCreate_AssignmentFailurePartial, TestNoOp_ClosedSkipsComment, TestClose_CommentThenFailurePartial, TestPicker_RemovedThenAddFailureInternalStep, TestReassign_OnlyAssigneeField |
 | Board writes | TestMove_AbsentAddThenSet, TestMove_ArchivedRestoreThenSet, TestBoardAdd_ExistingStatusPreserved, TestBoardAdd_NewDefaultStatusCleared, TestRestoreFailurePartialAddedToBoard, TestRemove_AbsentNoOp, TestRead_NeverUnarchives |
 | Parser | TestParse_AllPrefixes, TestParse_CheckboxCasesAndLiteralShortcuts, TestParse_IndentAndNestedBody, TestParse_BlankLinesAndCRLF, TestParse_OrphanAndOneSpaceIndent, TestParse_Unicode256AndEmptyTitle, TestParse_51IncludingSkipped, TestParse_LongBodyLine, TestParse_DuplicateTitles, FuzzParse_SourceSpansDeterminism |

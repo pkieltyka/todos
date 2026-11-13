@@ -83,24 +83,8 @@ func (f *Fake) Calls() []Call {
 }
 
 func invoke[T any](ctx context.Context, f *Fake, method string, args Arguments, effect func(*Fixture) (T, error)) (value T, err error) {
-	f.mu.Lock()
-	f.sequence++
-	idx := len(f.calls)
-	f.calls = append(f.calls, Call{Method: method, Args: cloneArguments(args), StartOrder: f.sequence})
-	key := gateKey{method, args.Number}
-	var gate *Gate
-	if q := f.gates[key]; len(q) > 0 {
-		gate = q[0]
-		f.gates[key] = q[1:]
-	}
-	f.mu.Unlock()
-	defer func() {
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		f.sequence++
-		f.calls[idx].EndOrder = f.sequence
-		f.calls[idx].Err = normalise(err)
-	}()
+	idx, gate := f.beginCall(method, args)
+	defer func() { f.finishCall(idx, err) }()
 	apply, injected := true, error(nil)
 	if gate != nil {
 		apply, injected = gate.wait(ctx)
@@ -124,6 +108,28 @@ func invoke[T any](ctx context.Context, f *Fake, method string, args Arguments, 
 		return value, normalise(injected)
 	}
 	return value, nil
+}
+
+func (f *Fake) beginCall(method string, args Arguments) (int, *Gate) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sequence++
+	idx := len(f.calls)
+	f.calls = append(f.calls, Call{Method: method, Args: cloneArguments(args), StartOrder: f.sequence})
+	key := gateKey{method, args.Number}
+	var gate *Gate
+	if q := f.gates[key]; len(q) > 0 {
+		gate = q[0]
+		f.gates[key] = q[1:]
+	}
+	return idx, gate
+}
+func (f *Fake) finishCall(idx int, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sequence++
+	f.calls[idx].EndOrder = f.sequence
+	f.calls[idx].Err = normalise(err)
 }
 
 func normalise(err error) *domain.Error {

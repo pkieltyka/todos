@@ -9,12 +9,18 @@ import (
 )
 
 func (f *Fake) change(ctx context.Context, method string, args Arguments, fn func(*Fixture, *domain.IssueDetail) bool) (domain.Change, error) {
+	return f.checkedChange(ctx, method, args, func(x *Fixture, d *domain.IssueDetail) (bool, error) { return fn(x, d), nil })
+}
+func (f *Fake) checkedChange(ctx context.Context, method string, args Arguments, fn func(*Fixture, *domain.IssueDetail) (bool, error)) (domain.Change, error) {
 	return invoke(ctx, f, method, args, func(x *Fixture) (domain.Change, error) {
 		i := issueIndex(x, args.Number)
 		if i < 0 {
 			return domain.Change{}, missing("issue")
 		}
-		changed := fn(x, &x.Issues[i])
+		changed, err := fn(x, &x.Issues[i])
+		if err != nil {
+			return domain.Change{}, err
+		}
 		return domain.Change{Issue: domain.CloneIssue(x.Issues[i].Issue), Changed: changed}, nil
 	})
 }
@@ -45,6 +51,7 @@ func (f *Fake) CreateIssue(ctx context.Context, in domain.NewIssue) (domain.Chan
 			labels = appendLabel(labels, fixtureLabel(x, name))
 		}
 		i := domain.Issue{NodeID: domain.NodeID(fmt.Sprintf("ISSUE_%d", n)), Number: n, Title: in.Title, State: "open", Author: ptr(x.Session.Viewer.Login), Assignees: uniqueLogins(x, in.Assignees), Labels: labels, CreatedAt: now, UpdatedAt: now, URL: fmt.Sprintf("%s/issues/%d", x.Session.Repo.URL, n), ViewerCanUpdate: true, ViewerCanDelete: true}
+		syncAssigneeIDs(x, &i)
 		if in.AddToBoard || in.Status != nil {
 			place(x, &i, status, optionID)
 		}
@@ -84,7 +91,7 @@ func uniqueLogins(x *Fixture, in []string) []string {
 				break
 			}
 		}
-		if !contains(out, name) {
+		if !loginIn(out, name) {
 			out = append(out, name)
 		}
 	}
@@ -103,25 +110,29 @@ func sameLogins(a, b []string) bool {
 }
 func (f *Fake) UpdateAssignees(ctx context.Context, n int, add, remove []string) (domain.Change, error) {
 	add, remove = copySlice(add), copySlice(remove)
-	return f.change(ctx, "UpdateAssignees", Arguments{Number: n, Add: add, Remove: remove}, func(x *Fixture, d *domain.IssueDetail) bool {
+	return f.checkedChange(ctx, "UpdateAssignees", Arguments{Number: n, Add: add, Remove: remove}, func(x *Fixture, d *domain.IssueDetail) (bool, error) {
+		if err := checkRemovals(x, d.Issue, remove, false); err != nil {
+			return false, err
+		}
 		adds, removes := uniqueLogins(x, add), uniqueLogins(x, remove)
 		next := []string{}
 		for _, s := range d.Issue.Assignees {
-			if !contains(removes, s) {
+			if !loginIn(removes, s) {
 				next = append(next, s)
 			}
 		}
 		for _, s := range adds {
-			if !contains(next, s) {
+			if !loginIn(next, s) {
 				next = append(next, s)
 			}
 		}
 		if sameLogins(next, d.Issue.Assignees) {
-			return false
+			return false, nil
 		}
 		d.Issue.Assignees = next
+		syncAssigneeIDs(x, &d.Issue)
 		d.Issue.UpdatedAt = f.tick()
-		return true
+		return true, nil
 	})
 }
 func (f *Fake) Reassign(ctx context.Context, n int, logins []string) (domain.Change, error) {
@@ -132,6 +143,7 @@ func (f *Fake) Reassign(ctx context.Context, n int, logins []string) (domain.Cha
 			return false
 		}
 		d.Issue.Assignees = next
+		syncAssigneeIDs(x, &d.Issue)
 		d.Issue.UpdatedAt = f.tick()
 		return true
 	})
@@ -171,7 +183,10 @@ func sameLabels(a, b []domain.Label) bool {
 }
 func (f *Fake) UpdateLabels(ctx context.Context, n int, add, remove []string) (domain.Change, error) {
 	add, remove = copySlice(add), copySlice(remove)
-	return f.change(ctx, "UpdateLabels", Arguments{Number: n, Add: add, Remove: remove}, func(x *Fixture, d *domain.IssueDetail) bool {
+	return f.checkedChange(ctx, "UpdateLabels", Arguments{Number: n, Add: add, Remove: remove}, func(x *Fixture, d *domain.IssueDetail) (bool, error) {
+		if err := checkRemovals(x, d.Issue, remove, true); err != nil {
+			return false, err
+		}
 		next := []domain.Label{}
 		for _, l := range d.Issue.Labels {
 			removed := false
@@ -188,11 +203,11 @@ func (f *Fake) UpdateLabels(ctx context.Context, n int, add, remove []string) (d
 			next = appendLabel(next, fixtureLabel(x, s))
 		}
 		if sameLabels(next, d.Issue.Labels) {
-			return false
+			return false, nil
 		}
 		d.Issue.Labels = next
 		d.Issue.UpdatedAt = f.tick()
-		return true
+		return true, nil
 	})
 }
 
@@ -272,4 +287,61 @@ func (f *Fake) Delete(ctx context.Context, n int) error {
 		return struct{}{}, nil
 	})
 	return err
+}
+
+func loginIn(names []string, name string) bool {
+	for _, login := range names {
+		if strings.EqualFold(login, name) {
+			return true
+		}
+	}
+	return false
+}
+func syncAssigneeIDs(x *Fixture, i *domain.Issue) {
+	ids := make(map[string]domain.NodeID, len(i.Assignees))
+	for _, login := range i.Assignees {
+		for old, id := range i.AssigneeIDs {
+			if strings.EqualFold(old, login) {
+				ids[login] = id
+				break
+			}
+		}
+		if ids[login] == "" {
+			for _, u := range x.Users {
+				if strings.EqualFold(u.Login, login) {
+					ids[login] = u.NodeID
+					break
+				}
+			}
+		}
+		if ids[login] == "" {
+			ids[login] = domain.NodeID("USER_" + login)
+		}
+	}
+	i.AssigneeIDs = ids
+}
+func checkRemovals(x *Fixture, i domain.Issue, names []string, labels bool) error {
+	for _, name := range names {
+		known := false
+		if labels {
+			for _, l := range i.Labels {
+				known = known || l.Name == name
+			}
+			for _, l := range x.Labels {
+				known = known || l.Name == name
+			}
+		} else {
+			if name == "@me" {
+				name = x.Session.Viewer.Login
+			}
+			known = loginIn(i.Assignees, name)
+			for _, u := range x.Users {
+				known = known || strings.EqualFold(u.Login, name)
+			}
+		}
+		if !known {
+			return &domain.Error{Kind: domain.ErrInvalidInput, Message: fmt.Sprintf("unknown removal %q", name)}
+		}
+	}
+	return nil
 }

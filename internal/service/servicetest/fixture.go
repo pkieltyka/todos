@@ -99,7 +99,7 @@ func GenIssues(n int) []domain.IssueDetail {
 		}
 		out = append(out, domain.IssueDetail{Issue: domain.Issue{
 			NodeID: domain.NodeID(fmt.Sprintf("ISSUE_%d", number)), Number: number, Title: fmt.Sprintf("Issue %d", number), State: "open", Author: ptr("pkieltyka"),
-			Assignees: []string{assignee}, Labels: []domain.Label{}, CreatedAt: updated.Add(-24 * time.Hour), UpdatedAt: updated,
+			Assignees: []string{assignee}, AssigneeIDs: map[string]domain.NodeID{assignee: map[string]domain.NodeID{"pkieltyka": "USER_pk", "reviewer": "USER_reviewer"}[assignee]}, Labels: []domain.Label{}, CreatedAt: updated.Add(-24 * time.Hour), UpdatedAt: updated,
 			URL: fmt.Sprintf("https://github.com/pkieltyka/todos/issues/%d", number), ViewerCanUpdate: true, ViewerCanDelete: true,
 		}, Body: fmt.Sprintf("Body for issue %d.\n", number)})
 	}

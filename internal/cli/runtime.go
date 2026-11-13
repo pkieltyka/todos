@@ -68,6 +68,7 @@ type runtime struct {
 	renderer     *markdown.Renderer
 	issueOnBoard bool
 	listState    string
+	action       string
 }
 type ListOptions struct {
 	Limit int

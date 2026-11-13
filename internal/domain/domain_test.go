@@ -120,3 +120,13 @@ func TestDraftClone_InFlightAndUncertain(t *testing.T) {
 		t.Fatal("draft marker clone aliases input")
 	}
 }
+
+func TestCloneIssue_AssigneeIDsOwned(t *testing.T) {
+	i := Issue{Assignees: []string{"departed"}, AssigneeIDs: map[string]NodeID{"departed": "DEPARTED"}}
+	c := CloneIssue(i)
+	c.AssigneeIDs["departed"] = "changed"
+	delete(c.AssigneeIDs, "departed")
+	if i.AssigneeIDs["departed"] != "DEPARTED" {
+		t.Fatal("assignee IDs alias")
+	}
+}

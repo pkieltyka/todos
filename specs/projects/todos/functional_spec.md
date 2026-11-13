@@ -113,6 +113,11 @@ Rules that apply everywhere:
 - Assignees, labels and statuses are validated before anything is written. An
   unknown value is an error (`invalid_input`) that names it and lists the valid
   ones, and nothing is changed.
+- Removing is judged against the issue itself. An assignee or label that the
+  issue currently has can always be removed, even one that is no longer in the
+  repository's lists, such as a person who has since left the organisation.
+  Only a name that is neither on the issue nor known to the repository is an
+  error.
 - After assigning, `todos` checks that GitHub actually applied it. GitHub can
   silently ignore an assignment the caller is not allowed to make; that is
   reported as `forbidden`, not as success.

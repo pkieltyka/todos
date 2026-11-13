@@ -40,7 +40,7 @@ diff, the developer fixes what is found, @cto reviews and commits. @pm updates
 - [x] **Phase 4: First dogfood** (both). Wire the real service into `todos`
   and `todos tui`. Run it against this repository and its board. Fix what the
   real data breaks.
-- [ ] **Phase 5: Changes, core** (core; parallel with Phase 6). Mutations in
+- [x] **Phase 5: Changes, core** (core; parallel with Phase 6). Mutations in
   `github` and `service`: create, edit, assignees, labels, comment, close and
   reopen, delete, board add / move / remove including archived cards, and
   `partial` results. CLI write commands. Also the pure `quickadd` parser and
