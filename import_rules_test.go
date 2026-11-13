@@ -110,7 +110,7 @@ func importAllowed(from, to string, isTest bool) bool {
 		return true
 	}
 	allowed := map[string]map[string]bool{
-		"": {"cli": true}, "domain": {}, "quickadd": {"domain": true}, "config": {"domain": true}, "markdown": {}, "github": {"domain": true}, "service": {"domain": true, "quickadd": true}, "service/servicetest": {"domain": true, "service": true, "quickadd": true}, "tui": {"domain": true, "service": true, "markdown": true}, "cli": {"domain": true, "quickadd": true, "config": true, "markdown": true, "github": true, "service": true, "service/servicetest": true, "tui": true}, "tools": {},
+		"": {"cli": true}, "domain": {}, "quickadd": {"domain": true}, "config": {"domain": true}, "markdown": {}, "github": {"domain": true}, "service": {"domain": true, "quickadd": true}, "service/servicetest": {"domain": true, "service": true, "quickadd": true}, "tui": {"domain": true, "service": true, "markdown": true, "quickadd": true}, "cli": {"domain": true, "quickadd": true, "config": true, "markdown": true, "github": true, "service": true, "service/servicetest": true, "tui": true}, "tools": {},
 	}
 
 	target := strings.Split(to, "/")[0]
@@ -133,6 +133,7 @@ func TestImportRules_ServiceCannotImportServicetest(t *testing.T) {
 		{"service", "service/metadata", false, true},
 		{"service/servicetest", "service", false, true},
 		{"service/servicetest", "quickadd", false, true},
+		{"tui", "quickadd", false, true},
 		{"tui", "service/servicetest", false, false},
 		{"tui", "service/servicetest", true, true},
 	} {

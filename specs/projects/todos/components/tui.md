@@ -1338,6 +1338,9 @@ detection.
 ### 12.1 Opening
 
 `A` opens the `QuickAdd` overlay in **Write** and sends `DraftStore.Load(repo)`.
+If the App's draft queue is still saving (a close-save or tick-save not yet
+landed), the load waits (`loadWaiting`) and is sent when the queue drains, so a
+quick reopen never reads the file before the latest save.
 
 - `draftLoadedMsg{d, ok}`: the editor gets `d.Text`. `marks` come from
   `d.Uncertain`, plus `d.InFlight` if a crash left one, which counts as
@@ -1345,9 +1348,9 @@ detection.
   span whose bytes no longer hash to `SourceSHA256` is dropped. Until the load
   lands, the editor is read-only.
 - Load error (an unreadable or malformed file, kind `config`): the editor
-  opens empty, with the banner `Couldn't read the saved draft: <message>. It
-  is left on disk.` `saveOff = true` for this session, so the file is never
-  overwritten.
+  opens empty, with the banner `✗ Saved draft unreadable (left on disk):
+  <message>` (shortened from the first wording so it fits 80 columns).
+  `saveOff = true` for this session, so the file is never overwritten.
 - From the Board view: `opts.Status` = the focused column (nil for "No
   status") and `opts.AddToBoard = true`. From the Issues view: no status,
   `AddToBoard = false`.
@@ -1355,36 +1358,38 @@ detection.
 
 ### 12.2 Saving while writing
 
+*As built (Phase 8):* there is no writer goroutine. The App owns a small queue
+in `draft.go`:
+
 ```go
-type draftWriter struct {
-    in    chan draftJob         // capacity 1; a newer job replaces an unsent one
-    store DraftStore
-    out   func(draftSavedMsg)   // delivered through a waitEvent Cmd
-}
-type draftJob struct {
-    seq   uint64
-    d     *domain.Draft         // nil → Delete
-    flush chan error            // non-nil for flushes: the caller waits for the result
-}
+type draftJob   struct { repo domain.RepoRef; d *domain.Draft } // d nil → Delete
+type draftQueue struct { saving bool; next *draftJob }
 ```
 
-- **One writer goroutine** serialises every save made from `Update`, in
-  `seq` order. A newer job replaces an unsent older one, so the latest text
-  wins. A plain Cmd per save could reorder two saves.
-- Every keystroke that changes the text bumps `draftGen` and schedules
-  `tea.Tick(500ms) → draftTickMsg{gen}`. If `gen` is still current when the tick
-  arrives, a copy goes to the writer. **At most 500 ms of typing can be lost
+- **One save at a time.** `saveDraft` returns a Cmd only when nothing is being
+  saved; otherwise the job replaces `next`. `draftSavedMsg` sends `next`. So
+  saves land in order and the latest text wins, which is what the writer
+  goroutine was for, with nothing to shut down.
+- Every keystroke that changes the text bumps `gen` and schedules
+  `Deps.Tick(500ms) → draftTickMsg{gen}`. If `gen` is still current when the
+  tick arrives, the draft is queued. **At most 500 ms of typing can be lost
   to a crash** (5.5).
-- **Step changes flush.** Write → Preview, Preview → Running, closing the
-  overlay with text, and a graceful quit each send a flush job and wait for
-  it in a Cmd. Quit returns `tea.Sequence(flushCmd, tea.Quit)`.
-- Editing inside a marked line removes that mark (UI 3.11), so the span
-  leaves `Uncertain` in the next save.
-- Empty text → a Delete job. `ctrl+x` discards: a Confirm if the text is not
-  empty, then Delete.
-- A save error never touches the text. It shows the warning `Draft not saved:
-  <reason>` once, and the next save tries again.
-- `saveOff` (12.1) turns the writer off for the session.
+- **Step changes save.** Write → Preview, Preview → Write, closing the
+  overlay, and Preview → Running. Before a run, `enter` queues a save and sets
+  `starting`; the run starts only when the queue has drained without an error.
+  A failed save there aborts with the toast `Couldn't save the draft, so
+  nothing was created: <reason>` and stays in Preview.
+- **Quit** calls `flushDraftNow`, a synchronous `Save` (or `Delete` when the
+  text is empty) just before `tea.Quit`, on both the direct and the confirmed
+  path. There is no later Update to deliver an async result.
+- Editing removes a "may exist" mark once its exact source bytes are no longer
+  in the text (UI 3.11), so the span leaves `Uncertain` in the next save.
+- Empty text → Delete. `ctrl+x` discards: a Confirm if the text is not empty,
+  then Delete.
+- A save error never touches the text. It shows `Draft not saved: <reason>`
+  once, and the next save tries again. A successful save resets that latch,
+  so a later failure is shown again.
+- `saveOff` (12.1) turns saving off for the session.
 
 ### 12.3 Preview
 
@@ -1450,6 +1455,14 @@ type RowState struct {
    `qaProgressMsg` re-issues it. `events` has capacity 64, so the UI never
    slows the executor.
 
+   *As built:* the goroutine is started through `Deps.Go` and its messages go
+   through `Deps.Send`. `Run` sets `Send = Program.Send`, so in production
+   messages go straight into the program and the channel path above is only
+   the fallback when `Send` is nil. The test harness sets both, so it counts
+   the run goroutine and every message it sends as running work until
+   handled; without that, the harness could settle before a progress event
+   was drained.
+
 `durable` (in `draft.go`) applies A7.12 and saves synchronously with
 `drafts.Save(d)`:
 
@@ -1487,11 +1500,17 @@ The rebuild:
   list, so the list behind the overlay fills in live.
 - A done item filed as closed shows creating → closing → `✓ #153 closed`
   (UI 3.11).
-- `tea.View.ProgressBar` is set to `tea.NewProgressBar(state, 100*done/total)`
-  during the run and is nil afterwards. `NewProgressBar(state
-  ProgressBarState, value int)` is in bubbletea v2.1.1 *(read)*. The name of
-  the "normal" state constant is **UNVERIFIED**: only `ProgressBarNone` was
-  read. Implementation checks `tea.go`.
+- `tea.View.ProgressBar` is set to
+  `tea.NewProgressBar(tea.ProgressBarDefault, 100*settled/items)` during the
+  run and is nil afterwards. `ProgressBarDefault` was read in bubbletea
+  v2.1.1. The denominator is all plan items (skipped ones settle at once), not
+  `WriteCount`.
+- The running header is `Quick add · creating X of N`, X = settled + 1.
+- `durable` is `runDraft.apply` in `draft.go`. `remaining` calls
+  `quickadd.Remaining` (architecture 2 allows `tui → quickadd` for this only)
+  with the outcomes so far, items without one counted as unattempted, and adds
+  the in-flight span: the item's start is the sum of the `Source` lengths of
+  the retained items before it, so duplicate items resolve by index.
 
 ### 12.5 Done and stopped (5.5, UI 3.11)
 
@@ -1500,6 +1519,9 @@ On `qaDoneMsg{res, err, d}`, `Update` adopts `d` and turns the saver back on.
 - **Complete:** no failed, uncertain or unattempted items, and every created
   item is closed or placed as asked. Send a Delete job, close the overlay, and
   toast `Created N issues #a–#b` (`· M skipped` if any were skipped).
+- *As built:* "may exist" marks are drawn as a list under the editor
+  (`⚠ may exist: check GitHub before resending · <first line>`), not inline in
+  the textarea, which has no per-line decoration.
 - **Stopped:** go back to **Write** with:
   - the text = `d.Text`, which holds exactly the failed, uncertain and
     unattempted items, in their original bytes.
@@ -1507,7 +1529,10 @@ On `qaDoneMsg{res, err, d}`, `Update` adopts `d` and turns the saver back on.
     An item that failed for a known reason is kept without a mark (UI 3.11).
   - a banner built from `res` and `err` (UI 3.11): the stop reason, the
     created numbers, and each issue that was created but not placed (`press M
-    on it`) or not closed (`press x on it`).
+    on it`) or not closed (`press x on it`). As built, one sentence per line
+    so none is cut at 80 columns; the first line is `✗ Stopped at "<title>":
+    <reason>.` or `✗ Quick add stopped: <reason>.` (the service's `quick add
+    stopped:` prefix is not repeated).
 - `ctrl+s` plans the remaining text again. That is "resume". There is no
   resume state, so a created item can never be sent twice.
 
@@ -1526,6 +1551,10 @@ On `qaDoneMsg{res, err, d}`, `Update` adopts `d` and turns the saver back on.
   or any printable letter except `j`, `k` and `space` focuses the filter.
   `enter` applies. `esc` clears the filter first, then closes.
 - `initial` is taken from the **effective** issue (8.3).
+- Assignee and label pickers also list, ticked, every initial value the
+  repository no longer lists (a departed assignee, a deleted label), after the
+  repository's own, so it can be unticked: removal is judged against the issue
+  (functional 4.1). They stay listed when fresh metadata lands.
   `diff = {Add: selected \ initial, Remove: initial \ selected}`. An empty
   diff closes the picker without a change.
 

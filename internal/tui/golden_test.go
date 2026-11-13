@@ -202,6 +202,7 @@ func TestGolden(t *testing.T) {
 			return h
 		}},
 	}
+	cases = append(cases, quickAddGoldens...)
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			for _, sz := range sizes {
@@ -258,4 +259,48 @@ func prFixture() servicetest.Fixture {
 	second.PullRequest.UpdatedAt = fixtureNow.Add(-3 * time30m())
 	fx.PRs = append(fx.PRs, second)
 	return fx
+}
+
+// quickAddGoldens are the five quick-add screens of tui.md 18.2.
+var quickAddGoldens = []goldenCase{
+	{"quickadd_write_marks", func(t *testing.T) *harness {
+		store := newMemDrafts()
+		text := "- Alpha\n- Bravo\n  with a body\n- Charlie\n"
+		store.m["github.com/pkieltyka/todos"] = domain.Draft{RepoKey: "github.com/pkieltyka/todos", Text: text,
+			Uncertain: []domain.DraftSpan{{StartByte: 8, EndByte: 30, SourceSHA256: sourceHash("- Bravo\n  with a body\n")}}}
+		h := newHarness(t, richFixture(), withDrafts(store))
+		h.press("A")
+		return h
+	}},
+	{"quickadd_preview", func(t *testing.T) *harness {
+		h := newHarness(t, richFixture(), withStart(ViewBoard), withDrafts(newMemDrafts()))
+		h.press("l", "A") // the Todo column
+		h.paste(threeItems + "- [x] Already done\n")
+		h.press("ctrl+s")
+		return h
+	}},
+	{"quickadd_preview_problems", func(t *testing.T) *harness {
+		h := newHarness(t, richFixture(), withDrafts(newMemDrafts()))
+		h.press("A")
+		h.paste("  indented before any item\n- Alpha\n")
+		h.press("ctrl+s")
+		return h
+	}},
+	{"quickadd_progress", func(t *testing.T) *harness {
+		h := newHarness(t, richFixture(), withDrafts(newMemDrafts()))
+		h.press("A")
+		h.paste(threeItems)
+		h.hold("RunQuickAdd.item", 1) // Alpha done, Bravo next
+		h.press("ctrl+s", "enter")
+		return h
+	}},
+	{"quickadd_stopped", func(t *testing.T) *harness {
+		h := newHarness(t, richFixture(), withStart(ViewBoard), withDrafts(newMemDrafts()))
+		h.press("A")
+		h.paste("- Alpha\n- Bravo\n")
+		g := h.hold("BoardAdd", 104)
+		h.press("ctrl+s", "enter")
+		h.fail(g, &domain.Error{Kind: domain.ErrGitHub, Message: "board unavailable"})
+		return h
+	}},
 }

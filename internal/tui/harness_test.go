@@ -27,10 +27,11 @@ type harness struct {
 
 	msgs    chan tea.Msg
 	wake    chan struct{}
-	running int
+	running int // dispatched Cmds, run goroutines and sent messages not yet handled; under mu
 
 	mu     sync.Mutex
 	timers []tea.Msg
+	delays []time.Duration // the duration of every Tick, in order
 	now    time.Time
 	gates  []*hgate
 	opened []string
@@ -69,10 +70,26 @@ func newHarness(t *testing.T, fx servicetest.Fixture, opts ...harnessOpt) *harne
 		Exec: func(cmd *exec.Cmd, fn tea.ExecCallback) tea.Cmd {
 			return func() tea.Msg { return fn(cmd.Run()) }
 		},
+		// A quick-add run goroutine counts as running until it returns; its
+		// messages count until handled, so a run parked at a gate counts as
+		// blocked like any gated call.
+		Go: func(f func()) {
+			h.mu.Lock()
+			h.running++
+			h.mu.Unlock()
+			go func() { f(); h.msgs <- goroutineDone{} }()
+		},
+		Send: func(m tea.Msg) {
+			h.mu.Lock()
+			h.running++
+			h.mu.Unlock()
+			h.msgs <- m
+		},
 		Tick: func(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd {
 			return func() tea.Msg {
 				h.mu.Lock()
 				h.timers = append(h.timers, fn(h.now.Add(d)))
+				h.delays = append(h.delays, d)
 				h.mu.Unlock()
 				return nil
 			}
@@ -96,13 +113,20 @@ func (h *harness) boot() {
 	h.size(80, 24)
 }
 
+// goroutineDone marks the end of a goroutine started through Deps.Go.
+type goroutineDone struct{}
+
 func (h *harness) dispatch(cmd tea.Cmd) {
 	if cmd == nil {
 		return
 	}
+	h.mu.Lock()
 	h.running++
+	h.mu.Unlock()
 	go func() { h.msgs <- cmd() }()
 }
+
+func (h *harness) runningNow() int { h.mu.Lock(); defer h.mu.Unlock(); return h.running }
 
 func (h *harness) handle(msg tea.Msg) {
 	switch m := msg.(type) {
@@ -141,14 +165,18 @@ func (h *harness) blocked() int {
 func (h *harness) settle() {
 	h.t.Helper()
 	deadline := time.After(5 * time.Second)
-	for h.running > h.blocked() {
+	for h.runningNow() > h.blocked() {
 		select {
 		case m := <-h.msgs:
+			h.mu.Lock()
 			h.running--
-			h.handle(m)
+			h.mu.Unlock()
+			if _, done := m.(goroutineDone); !done {
+				h.handle(m)
+			}
 		case <-h.wake:
 		case <-deadline:
-			h.t.Fatalf("harness did not settle: %d running, %d blocked", h.running, h.blocked())
+			h.t.Fatalf("harness did not settle: %d running, %d blocked", h.runningNow(), h.blocked())
 		}
 	}
 }
@@ -197,6 +225,14 @@ func (h *harness) hold(method string, n int) *hgate {
 	h.gates = append(h.gates, g)
 	go func() { <-g.g.Started; h.wake <- struct{}{} }()
 	return g
+}
+
+// pass registers a gate that lets its call through at once (so later gates
+// on the same method hold later calls).
+func (h *harness) pass(method string, n int) {
+	g := h.hold(method, n)
+	g.g.Release()
+	g.done = true
 }
 
 func (h *harness) release(g *hgate) { g.g.Release(); g.done = true; h.settle() }

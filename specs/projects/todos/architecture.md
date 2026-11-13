@@ -73,7 +73,7 @@ Import rules, enforced by a test that inspects imports
 | `github` | `domain` |
 | `service` | `domain`, `quickadd` |
 | `service/servicetest` | `domain`, `service`, `quickadd` (from Phase 5, for the fake's quick-add planning) |
-| `tui` | `domain`, `service`, `markdown` |
+| `tui` | `domain`, `service`, `markdown`, `quickadd` (only for `Remaining`, so the rule for which text is still unsent exists once) |
 | `cli` | everything above |
 
 - `service` defines the two interfaces it depends on: `Backend` (implemented

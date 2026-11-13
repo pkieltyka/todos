@@ -68,7 +68,7 @@ func (s *Board) Actions(c *Ctx) []Action {
 	if s.filter.String() != "" {
 		acts = append(acts, ActBack)
 	}
-	acts = append(acts, ActNew)
+	acts = append(acts, ActNew, ActQuickAdd)
 	if has {
 		acts = append(acts, ActEdit, ActClose, ActAssign, ActLabel, ActStatus, ActComment, ActCloseNotPlanned, ActDelete)
 	}
@@ -206,7 +206,7 @@ func (s *Board) Update(c *Ctx, msg tea.Msg) tea.Cmd {
 			}
 			return c.a.copyURL(i.URL)
 		}
-	case ActNew:
+	case ActNew, ActQuickAdd:
 		var st *string
 		if f != nil {
 			st = f.Status

@@ -48,7 +48,7 @@ func (s *IssueList) Actions(*Ctx) []Action {
 	if s.filter.String() != "" {
 		acts = append(acts, ActBack)
 	}
-	acts = append(acts, ActNew)
+	acts = append(acts, ActNew, ActQuickAdd)
 	if has {
 		acts = append(acts, ActEdit, ActClose)
 	}
@@ -137,7 +137,7 @@ func (s *IssueList) Update(c *Ctx, msg tea.Msg) tea.Cmd {
 		next := map[domain.IssueState]domain.IssueState{"open": "closed", "closed": "all", "all": "open"}
 		cache.Query.State = next[cache.Query.State]
 		return c.a.loadIssues(ReasonQueryChanged)
-	case ActNew, ActEdit, ActAssign, ActLabel, ActComment, ActClose, ActCloseNotPlanned,
+	case ActNew, ActQuickAdd, ActEdit, ActAssign, ActLabel, ActComment, ActClose, ActCloseNotPlanned,
 		ActStatus, ActStatusPrev, ActStatusNext, ActDelete:
 		return c.a.issueAction(c, m.A, s.sel, false, nil)
 	case ActBrowser:

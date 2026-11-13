@@ -198,7 +198,7 @@ func (s *IssueDetail) SubBar(c *Ctx, w int) string { return detailSub(c, "‹ "+
 func (s *IssueDetail) Title(*Ctx) string           { return "#" + itoaPlain(s.number) }
 func (s *IssueDetail) Actions(*Ctx) []Action {
 	acts := append(append([]Action{}, scrollActions...), ActEdit, ActComment, ActAssign, ActLabel, ActClose, ActBack,
-		ActNew, ActCloseNotPlanned, ActStatus, ActStatusPrev, ActStatusNext, ActDelete, ActBrowser, ActCopyURL)
+		ActNew, ActQuickAdd, ActCloseNotPlanned, ActStatus, ActStatusPrev, ActStatusNext, ActDelete, ActBrowser, ActCopyURL)
 	return acts
 }
 func (s *IssueDetail) Slots() []Slot {
@@ -212,7 +212,7 @@ func (s *IssueDetail) Update(c *Ctx, msg tea.Msg) tea.Cmd {
 	}
 	i, _ := c.Issue(s.number)
 	switch m.A {
-	case ActNew, ActEdit, ActAssign, ActLabel, ActComment, ActClose, ActCloseNotPlanned,
+	case ActNew, ActQuickAdd, ActEdit, ActAssign, ActLabel, ActComment, ActClose, ActCloseNotPlanned,
 		ActStatus, ActStatusPrev, ActStatusNext, ActDelete:
 		return c.a.issueAction(c, m.A, s.number, false, nil)
 	case ActBack:

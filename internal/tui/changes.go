@@ -193,7 +193,13 @@ func partialText(p Patch, n int, de *domain.Error) string {
 // pendingWrites counts what quitting would abandon: pending changes and busy
 // overlays (tui.md 8.8).
 func (a *App) pendingWrites() int {
-	return a.pending.Count() + len(a.writes)
+	n := a.pending.Count() + len(a.writes)
+	for _, o := range a.overlays {
+		if q, ok := o.(*QuickAdd); ok && q.Busy() {
+			n++ // a quick-add run in progress (tui.md 8.8)
+		}
+	}
+	return n
 }
 
 // ---- form writes (create, edit, comment, delete) ----

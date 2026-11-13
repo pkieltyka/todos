@@ -33,6 +33,12 @@ type Deps struct {
 	// Exec runs the external editor; tea.ExecProcess in production. The test
 	// harness runs the command directly. nil means tea.ExecProcess.
 	Exec func(cmd *exec.Cmd, fn tea.ExecCallback) tea.Cmd
+	// Go starts the quick-add run goroutine; `go f()` in production. The
+	// harness tracks it.
+	Go func(f func())
+	// Send delivers a message from a goroutine into the program; Run sets it
+	// to Program.Send. nil means the run streams through a channel instead.
+	Send func(tea.Msg)
 }
 
 // Env is what cli read from the environment.
@@ -115,7 +121,9 @@ type App struct {
 	pending *PendingSet
 	formSeq uint64
 	writes  map[string]*formWrite // form writes in flight (create, edit, comment, delete)
-	later   []tea.Cmd             // commands produced while handling a message, run after it
+	drafts  draftQueue            // quick-add draft saves, one at a time
+	runSeq  uint64
+	later   []tea.Cmd // commands produced while handling a message, run after it
 }
 
 type lastKey struct {
@@ -142,6 +150,9 @@ func New(deps Deps, opts Options) *App {
 	}
 	if deps.Exec == nil {
 		deps.Exec = tea.ExecProcess
+	}
+	if deps.Go == nil {
+		deps.Go = func(f func()) { go f() }
 	}
 	if deps.Renderer == nil {
 		deps.Renderer = markdown.NewRenderer(markdown.Options{})
@@ -184,7 +195,11 @@ func run(ctx context.Context, deps Deps, opts Options, progOpts ...tea.ProgramOp
 	defer cancel()
 	a := New(deps, opts)
 	a.ctx = ctx
-	_, err := tea.NewProgram(a, append(programOptions(ctx, deps.Env), progOpts...)...).Run()
+	p := tea.NewProgram(a, append(programOptions(ctx, deps.Env), progOpts...)...)
+	if a.deps.Send == nil {
+		a.deps.Send = p.Send
+	}
+	_, err := p.Run()
 	return err
 }
 
@@ -458,8 +473,11 @@ func (a *App) update(msg tea.Msg) tea.Cmd {
 		return nil
 	case createDoneMsg, editDoneMsg, commentDoneMsg, deleteDoneMsg:
 		return a.onWriteResult(msg)
-	case formReadMsg, conflictChoiceMsg, editorDoneMsg, editorReadMsg:
+	case formReadMsg, conflictChoiceMsg, editorDoneMsg, editorReadMsg,
+		draftLoadedMsg, draftTickMsg, planMsg, qaProgressMsg, qaDoneMsg:
 		return a.toOverlays(msg)
+	case draftSavedMsg:
+		return a.onDraftSavedMsg(m)
 	case boardMsg:
 		return a.onBoard(m)
 	case candidatesMsg:
@@ -585,13 +603,14 @@ func (a *App) quit(ctrlC bool) tea.Cmd {
 	}
 	n := a.pendingWrites()
 	if n == 0 {
+		a.flushDraftNow()
 		return tea.Quit
 	}
 	what := itoaPlain(n) + " changes"
 	if n == 1 {
 		what = "1 change"
 	}
-	q := newConfirm(what+" still sending. Quit anyway?", func(*Ctx) tea.Cmd { return tea.Quit })
+	q := newConfirm(what+" still sending. Quit anyway?", func(*Ctx) tea.Cmd { a.flushDraftNow(); return tea.Quit })
 	q.quit = true
 	a.pushOverlay(q)
 	return nil
@@ -897,6 +916,7 @@ func (a *App) View() tea.View {
 	v := tea.NewView(a.render())
 	v.AltScreen = true
 	v.WindowTitle = a.title()
+	v.ProgressBar = a.progressBar()
 	if a.fits {
 		c := a.ctxFor(a.theme)
 		if n := len(a.overlays); n > 0 {

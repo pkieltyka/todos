@@ -4,16 +4,16 @@
 ────────────────────────────────────────────────────────────────────────────────
  Navigate                  Issue actions             Views & app
  j/k ↓/↑   move            n    new issue            1 2 3  views
- g/G       top/bottom      e    edit title/body      tab    next view
- ctrl+d/u  half page       a    assignees            r      refresh
- enter     open            L    labels               /      filter
-                           c    comment              m      only mine
-                           x    close / reopen       s      state
-                           X    close as not planned o      open in browser
-                           M    board status         y      copy URL
-                           < >  move on board        ?      help
-                           D    delete               q      quit
-
+ g/G       top/bottom      A    quick add            tab    next view
+ ctrl+d/u  half page       e    edit title/body      r      refresh
+ enter     open            a    assignees            /      filter
+                           L    labels               m      only mine
+                           c    comment              s      state
+                           x    close / reopen       o      open in browser
+                           X    close as not planned y      copy URL
+                           M    board status         ?      help
+                           < >  move on board        q      quit
+                           D    delete
 
 
 

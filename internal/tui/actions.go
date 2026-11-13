@@ -20,6 +20,9 @@ func (a *App) issueAction(c *Ctx, act Action, n int, fromBoard bool, status *str
 		a.pushOverlay(newCreateForm(a, fromBoard, status))
 		return a.loadMeta()
 	}
+	if act == ActQuickAdd {
+		return a.openQuickAdd(fromBoard, status)
+	}
 	i, ok := c.Issue(n) // effective: patches are computed against what is drawn (A5 rule 1)
 	if !ok {
 		return nil

@@ -32,6 +32,7 @@ type Picker struct {
 	title     string
 	items     []PickItem
 	initial   map[string]bool
+	order     []string // initial, in the order given
 	selected  map[string]bool
 	cursor    int
 	filter    lineInput
@@ -50,6 +51,8 @@ func newPicker(kind pickKind, title string, items []PickItem, initial []string, 
 		p.initial[k] = true
 		p.selected[k] = true
 	}
+	p.order = initial
+	p.items = p.withInitial(items)
 	p.refilter()
 	if !multi {
 		for i, r := range p.rows {
@@ -61,13 +64,39 @@ func newPicker(kind pickKind, title string, items []PickItem, initial []string, 
 	return p
 }
 
+// withInitial appends, ticked, every value the target already has that the
+// repository no longer lists (a departed assignee, a deleted label), so it
+// can still be unticked: removal is judged against the issue (functional
+// 4.1). Status pickers list fixed choices and are left alone.
+func (p *Picker) withInitial(items []PickItem) []PickItem {
+	if p.kind == pickStatus {
+		return items
+	}
+	have := make(map[string]bool, len(items))
+	for _, it := range items {
+		have[it.Key] = true
+	}
+	for _, k := range p.order {
+		if have[k] {
+			continue
+		}
+		have[k] = true
+		label := "@" + line(k)
+		if p.kind == pickLabels {
+			label = "● " + line(k)
+		}
+		items = append(items, PickItem{Key: k, Label: label})
+	}
+	return items
+}
+
 // setItems replaces the rows when fresh metadata lands, keeping the cursor by key.
 func (p *Picker) setItems(items []PickItem) {
 	key := ""
 	if p.cursor < len(p.rows) {
 		key = p.items[p.rows[p.cursor]].Key
 	}
-	p.items = items
+	p.items = p.withInitial(items)
 	p.refilter()
 	for i, r := range p.rows {
 		if p.items[r].Key == key {

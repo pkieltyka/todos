@@ -908,3 +908,34 @@ func TestPending_openingDetailOfHeldIssueStillReleases(t *testing.T) {
 		t.Fatal("the detail's read did not release the hold")
 	}
 }
+
+// Removal is judged against the issue (functional 4.1): a departed assignee
+// or a deleted label the issue still has is listed, ticked, and can be removed.
+func TestPicker_listsIssueValuesTheRepoNoLongerHas(t *testing.T) {
+	fx := richFixture()
+	fx.Users = slices.DeleteFunc(fx.Users, func(u domain.User) bool { return u.Login == "reviewer" })
+	gone := fx.Issues[0].Issue.Labels[0].Name
+	fx.Labels = slices.DeleteFunc(fx.Labels, func(l domain.Label) bool { return l.Name == gone })
+	h := newHarness(t, fx)
+	untick := func(key string) {
+		p := h.app.overlays[len(h.app.overlays)-1].(*Picker)
+		row := slices.IndexFunc(p.rows, func(r int) bool { return p.items[r].Key == key })
+		if row < 0 || !p.selected[key] {
+			t.Fatalf("%q not listed ticked", key)
+		}
+		for p.cursor < row {
+			h.press("j")
+		}
+		h.press("space", "enter")
+	}
+	h.press("a")
+	untick("reviewer")
+	h.press("L")
+	untick(gone)
+	if c := h.calls("UpdateAssignees"); len(c) != 1 || !slices.Equal(c[0].Args.Remove, []string{"reviewer"}) {
+		t.Fatalf("assignee calls %+v", c)
+	}
+	if c := h.calls("UpdateLabels"); len(c) != 1 || !slices.Equal(c[0].Args.Remove, []string{gone}) {
+		t.Fatalf("label calls %+v", c)
+	}
+}

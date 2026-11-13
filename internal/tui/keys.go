@@ -180,7 +180,7 @@ var footerHidden = map[Action]bool{
 // x close"); the help screen keeps the long ones.
 var footerShort = map[Action]string{
 	ActNew: "new", ActEdit: "edit", ActClose: "close", ActAssign: "assign", ActLabel: "label",
-	ActComment: "comment", ActStatus: "status", ActDelete: "delete", ActCloseNotPlanned: "not planned",
+	ActComment: "comment", ActStatus: "status", ActQuickAdd: "quick add", ActDelete: "delete", ActCloseNotPlanned: "not planned",
 }
 
 // helpGroup is a column of the help screen (UI 3.13).

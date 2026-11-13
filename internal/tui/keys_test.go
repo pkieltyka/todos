@@ -95,7 +95,7 @@ func TestHelp_listsEveryEnabledAction(t *testing.T) {
 		"close / reopen", "close as not planned", "board status", "move on board", "delete"} {
 		h.contains(want) // Phase 6: the issue actions are listed
 	}
-	h.lacks("quick add") // Phase 8
+	h.contains("quick add") // Phase 8
 	h.press("esc")
 	h.lacks("Help ·")
 	// On the board, its own keys are listed.
