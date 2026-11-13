@@ -1,0 +1,35 @@
+query SearchIssues($query: String!, $first: Int!, $after: String, $withBoard: Boolean!) {
+  search(query: $query, type: ISSUE_ADVANCED, first: $first, after: $after) {
+    issueCount pageInfo { hasNextPage endCursor }
+    nodes {
+      __typename
+      ... on Issue {
+        ...IssueSummary
+        repository { id nameWithOwner }
+        projectItems(first: 100, includeArchived: false) @include(if: $withBoard) {
+          nodes { ...PlacementFields } pageInfo { hasNextPage endCursor }
+        }
+      }
+    }
+  }
+}
+
+fragment IssueSummary on Issue {
+  id number title state stateReason author { login }
+  assignees(first: 10) { nodes { id login name } }
+  labels(first: 100) {
+    nodes { id name color description }
+    pageInfo { hasNextPage endCursor }
+  }
+  milestone { title }
+  comments { totalCount }
+  createdAt updatedAt closedAt url viewerCanUpdate viewerCanDelete
+}
+
+fragment PlacementFields on ProjectV2Item {
+  id isArchived project { id }
+  fieldValueByName(name: "Status") {
+    __typename
+    ... on ProjectV2ItemFieldSingleSelectValue { name optionId }
+  }
+}

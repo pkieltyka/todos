@@ -1,0 +1,27 @@
+query PRView($owner: String!, $repo: String!, $number: Int!, $afterCloses: String) {
+  repository(owner: $owner, name: $repo) {
+    id nameWithOwner
+    pullRequest(number: $number) {
+      ...PRSummary body mergeable
+      closingIssuesReferences(first: 100, after: $afterCloses) {
+        nodes { number repository { id nameWithOwner } }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+}
+
+fragment PRSummary on PullRequest {
+  id number title state isDraft author { login }
+  headRefName baseRefName reviewDecision
+  assignees(first: 10) { nodes { id login name } }
+  labels(first: 100) {
+    nodes { id name color description }
+    pageInfo { hasNextPage endCursor }
+  }
+  comments { totalCount }
+  commits(last: 1) {
+    nodes { commit { statusCheckRollup { state contexts(first: 1) { totalCount } } } }
+  }
+  createdAt updatedAt closedAt mergedAt url
+}

@@ -196,6 +196,7 @@ These are transport-neutral. The Backend interface is in [service.md](service.md
 
 ```go
 type ProjectItem struct {
+    RepositoryID NodeID // content repository identity; used for board scoping
     ID NodeID
     ProjectID NodeID
     Archived bool

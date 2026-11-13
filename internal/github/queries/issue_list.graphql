@@ -1,0 +1,35 @@
+query IssueList($owner: String!, $repo: String!, $first: Int!, $after: String,
+                $states: [IssueState!], $filter: IssueFilters, $withBoard: Boolean!) {
+  repository(owner: $owner, name: $repo) {
+    issues(first: $first, after: $after, states: $states, filterBy: $filter,
+           orderBy: {field: UPDATED_AT, direction: DESC}) {
+      totalCount pageInfo { hasNextPage endCursor }
+      nodes {
+        ...IssueSummary
+        projectItems(first: 100, includeArchived: false) @include(if: $withBoard) {
+          nodes { ...PlacementFields } pageInfo { hasNextPage endCursor }
+        }
+      }
+    }
+  }
+}
+
+fragment IssueSummary on Issue {
+  id number title state stateReason author { login }
+  assignees(first: 10) { nodes { id login name } }
+  labels(first: 100) {
+    nodes { id name color description }
+    pageInfo { hasNextPage endCursor }
+  }
+  milestone { title }
+  comments { totalCount }
+  createdAt updatedAt closedAt url viewerCanUpdate viewerCanDelete
+}
+
+fragment PlacementFields on ProjectV2Item {
+  id isArchived project { id }
+  fieldValueByName(name: "Status") {
+    __typename
+    ... on ProjectV2ItemFieldSingleSelectValue { name optionId }
+  }
+}

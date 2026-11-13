@@ -1,0 +1,15 @@
+mutation CreateIssue($input: CreateIssueInput!) {
+  createIssue(input: $input) { issue { ...IssueSummary } }
+}
+
+fragment IssueSummary on Issue {
+  id number title state stateReason author { login }
+  assignees(first: 10) { nodes { id login name } }
+  labels(first: 100) {
+    nodes { id name color description }
+    pageInfo { hasNextPage endCursor }
+  }
+  milestone { title }
+  comments { totalCount }
+  createdAt updatedAt closedAt url viewerCanUpdate viewerCanDelete
+}

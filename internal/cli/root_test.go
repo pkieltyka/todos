@@ -92,6 +92,15 @@ func TestHelp_GroupsUsageAndNoCompletion(t *testing.T) {
 	if code != 0 || err != "" || !strings.Contains(out, "no arguments opens the TUI") || !strings.Contains(out, "Other commands:") || strings.Contains(out, "completion") {
 		t.Fatalf("help: %q %q %d", out, err, code)
 	}
+	previous := -1
+	for _, heading := range []string{"Issues:", "Board:", "Pull requests:", "Other commands:"} {
+		index := strings.Index(out, heading)
+		if index <= previous {
+			t.Fatalf("help group order: %s\n%s", heading, out)
+		}
+		previous = index
+	}
+
 	out, err, code = execute(context.Background(), "help", "version")
 	if code != 0 || !strings.Contains(out, "todos version --json") {
 		t.Fatal("missing version help/examples")

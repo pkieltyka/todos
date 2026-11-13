@@ -14,24 +14,16 @@ import (
 	"syscall"
 
 	"github.com/pkieltyka/todos/internal/domain"
+	"github.com/pkieltyka/todos/internal/markdown"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
-// Dependencies makes foundation commands independent of process globals.
-// The later read-path phase adds service wiring and terminal presentation.
-type Dependencies struct {
-	In          io.Reader
-	Out, Err    io.Writer
-	Skill       []byte
-	Version     string
-	Interrupted func() bool
-}
-
 func Main(skill []byte, version string) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	deps := Dependencies{In: os.Stdin, Out: os.Stdout, Err: os.Stderr, Skill: skill, Version: version, Interrupted: func() bool { return ctx.Err() != nil }}
+	deps := ProductionDependencies(skill, version)
+	deps.Interrupted = func() bool { return ctx.Err() != nil }
 	os.Exit(Run(ctx, os.Args[1:], deps))
 }
 
@@ -48,7 +40,7 @@ func normaliseDeps(deps Dependencies) Dependencies {
 	if deps.Version == "" {
 		deps.Version = "dev"
 	}
-	return deps
+	return completeDeps(deps)
 }
 
 func NewRoot(deps Dependencies) *cobra.Command {
@@ -60,8 +52,8 @@ func NewRoot(deps Dependencies) *cobra.Command {
 	root.SetOut(deps.Out)
 	root.SetErr(deps.Err)
 	flags := root.PersistentFlags()
-	flags.String("repo", "", "Repository OWNER/REPO (not used by foundation commands)")
-	flags.String("project", "", "Project NUMBER, OWNER/NUMBER or URL (not used by foundation commands)")
+	flags.String("repo", "", "Repository [HOST/]OWNER/REPO")
+	flags.String("project", "", "Project NUMBER, OWNER/NUMBER or URL")
 	flags.BoolVar(&asJSON, "json", false, "Print a JSON document")
 	flags.Bool("no-color", false, "Disable colour")
 	flags.BoolVar(&showVersion, "version", false, "Print the version")
@@ -86,7 +78,6 @@ func NewRoot(deps Dependencies) *cobra.Command {
 		}
 		return writeOutput(deps.Out, []byte("The TUI is not built yet.\n"))
 	}
-	root.AddGroup(&cobra.Group{ID: "other", Title: "Other commands:"})
 	root.AddCommand(&cobra.Command{Use: "version", Short: "Print the todos version", GroupID: "other", Args: cobra.NoArgs, Example: "  todos version\n  todos version --json", RunE: func(*cobra.Command, []string) error { return writeVersion() }})
 	root.AddCommand(&cobra.Command{Use: "skill", Short: "Print the placeholder agent skill", GroupID: "other", Args: cobra.NoArgs, Example: "  todos skill\n  todos skill > SKILL.md", RunE: func(*cobra.Command, []string) error {
 		if showVersion {
@@ -97,13 +88,15 @@ func NewRoot(deps Dependencies) *cobra.Command {
 		}
 		return writeOutput(deps.Out, deps.Skill)
 	}})
+	addReadCommands(root, deps, writeVersion)
+	root.AddGroup(&cobra.Group{ID: "other", Title: "Other commands:"})
 	return root
 }
 
 func Run(ctx context.Context, args []string, deps Dependencies) int {
 	deps = normaliseDeps(deps)
 	root := NewRoot(deps)
-	root.SetArgs(args)
+	root.SetArgs(append([]string{}, args...))
 	parseFailed := false
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { parseFailed = true; return err })
 	var cmd *cobra.Command
@@ -115,6 +108,10 @@ func Run(ctx context.Context, args []string, deps Dependencies) int {
 	}
 	if err == nil {
 		return 0
+	}
+	var reported *reportedFailure
+	if errors.As(err, &reported) {
+		return exitCode(reported.Err, deps.Interrupted != nil && deps.Interrupted())
 	}
 	var de *domain.Error
 	if !errors.As(err, &de) {
@@ -128,13 +125,11 @@ func Run(ctx context.Context, args []string, deps Dependencies) int {
 		de = &domain.Error{Kind: kind, Message: err.Error(), Err: err}
 	}
 	if errorJSONMode(root, cmd, args, parseFailed) {
-		_ = json.NewEncoder(deps.Err).Encode(struct {
-			Error errorJSON `json:"error"`
-		}{errorJSON{Kind: string(de.Kind), Message: de.Message, Hint: de.Hint, Uncertain: de.Uncertain}})
+		_ = json.NewEncoder(deps.Err).Encode(ErrorEnvelope{Error: errorDTO(de)})
 	} else {
-		_, _ = fmt.Fprintln(deps.Err, "error:", de.Message)
+		_, _ = fmt.Fprintln(deps.Err, "error:", markdown.SanitizeLine(de.Message))
 		if de.Hint != "" {
-			_, _ = fmt.Fprintln(deps.Err, "hint:", de.Hint)
+			_, _ = fmt.Fprintln(deps.Err, "hint:", markdown.SanitizeLine(de.Hint))
 		}
 		if de.Kind == domain.ErrUsage {
 			if cmd == nil {
@@ -145,13 +140,6 @@ func Run(ctx context.Context, args []string, deps Dependencies) int {
 	}
 	interrupted := deps.Interrupted != nil && deps.Interrupted()
 	return exitCode(de, interrupted)
-}
-
-type errorJSON struct {
-	Kind      string `json:"kind"`
-	Message   string `json:"message"`
-	Hint      string `json:"hint"`
-	Uncertain bool   `json:"uncertain"`
 }
 
 func outputError(err error) error {

@@ -37,20 +37,27 @@ type Client struct {
     initMu sync.Mutex
     rest *api.RESTClient
     graphql *api.GraphQLClient
-    ready chan struct{}
-    initErr error
+    initial *initialization
     host, tokenSource string
     authMu sync.RWMutex
     token string // private memory only; never formatted
+    tokenVersion uint64
+    needsRefresh bool
+    refreshing *credentialRefresh
     tracker rateTracker
 }
 type operation struct { Name string; Mutation bool; Started bool }
-type responseMeta struct { Headers http.Header }
+type initialization struct { done chan struct{}; err error }
+type credentialRefresh struct { done chan struct{}; err error }
+type responseMeta struct { Headers http.Header; CredentialVersion uint64 }
 type rateTracker struct { mu sync.Mutex; buckets map[string]domain.RateBucket; blockedUntil time.Time }
 type observingTransport struct { base http.RoundTripper; client *Client }
 
 func New(Options) *Client
 func (c *Client) initialize(context.Context) error
+func (c *Client) requestReady(context.Context) error
+func (c *Client) refreshToken(ctx context.Context, force bool) error
+func (c *Client) authFailed(credentialVersion uint64)
 func (c *Client) query(ctx context.Context, name string, variables map[string]any, out any) error
 func (c *Client) mutate(ctx context.Context, name string, variables map[string]any, out any) error
 func (t *observingTransport) RoundTrip(*http.Request) (*http.Response,error)
@@ -72,7 +79,8 @@ func retryAfter(http.Header, time.Time) time.Duration
 - Before invoking DoWithContext, check ctx.Err. Set operation.Started=true immediately before invocation; an ambiguous failure after that is uncertain for a mutation.
 - Decoder destination is per call. A successful response missing its required object or with malformed JSON is github.
 - Queries and mutations are never automatically retried.
-- RefreshCredentials re-resolves credential state; it does not retry the failed operation. RefreshMetadata is the caller's recovery path.
+- An auth failure marks that credential generation stale. The next request re-resolves credentials before sending, so a plain retry after `gh auth login` works; the failed operation is never replayed. Concurrent callers share the credential lookup, and a late failure from an older credential generation does not invalidate newer credentials. An initial missing-token failure is also re-resolved on the next call.
+- RefreshCredentials explicitly re-resolves credential state without replaying an operation. RefreshMetadata also refreshes memoised service metadata/session.
 - go-gh credential discovery has no context API: run one initialisation worker and let a canceled caller stop waiting on its result. The read-only lookup may finish later, but a canceled use case cannot continue to a write. Do not hold initMu while a canceled caller waits.
 - GET /user is used only by DoctorScopes for optional X-OAuth-Scopes; ordinary Credentials reads local source information only.
 

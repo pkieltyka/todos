@@ -46,11 +46,12 @@ type Board struct {
 }
 
 type ProjectItem struct {
-	ID        NodeID
-	ProjectID NodeID
-	Archived  bool
-	Kind      string // Issue, PullRequest, DraftIssue, Redacted
-	Repo      RepoRef
-	Issue     *Issue
-	Placement Placement
+	RepositoryID NodeID // content repository identity; used for board scoping
+	ID           NodeID
+	ProjectID    NodeID
+	Archived     bool
+	Kind         string // Issue, PullRequest, DraftIssue, Redacted
+	Repo         RepoRef
+	Issue        *Issue
+	Placement    Placement
 }

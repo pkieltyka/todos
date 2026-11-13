@@ -1,0 +1,11 @@
+mutation SetStatus($input: UpdateProjectV2ItemFieldValueInput!) {
+  updateProjectV2ItemFieldValue(input: $input) { projectV2Item { ...PlacementFields } }
+}
+
+fragment PlacementFields on ProjectV2Item {
+  id isArchived project { id }
+  fieldValueByName(name: "Status") {
+    __typename
+    ... on ProjectV2ItemFieldSingleSelectValue { name optionId }
+  }
+}
