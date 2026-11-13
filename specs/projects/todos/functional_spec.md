@@ -184,6 +184,10 @@ How changes appear:
   that changed on GitHub at the same time arrives with the next refresh. A
   moved or newly created card sits at the bottom of its column until a refresh
   shows where GitHub placed it.
+- A board's own automations act a few seconds after a change: a new issue may
+  be added to a column, and moving a card to a "done" column may close the
+  issue. So after creating an issue or changing a card, the TUI looks at that
+  issue once more five seconds later, to show what the board did.
 
 ### 4.5 Concurrent edits
 

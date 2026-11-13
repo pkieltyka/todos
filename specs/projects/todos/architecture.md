@@ -209,8 +209,15 @@ optimistically. Pending markers come from comparing the two.
    Changes to different issues run in parallel, at most four at once.
 3. *Success.* The change is removed; the returned issue becomes `base` with
    `asOf` = now; the next queued change for that issue is sent. There is no
-   extra read after a successful change: the service already read the issue
-   just before writing, and the write returns it as GitHub acknowledged it.
+   immediate extra read after a successful change: the service already read
+   the issue just before writing, and the write returns it as GitHub
+   acknowledged it. One exception, found in dogfooding: GitHub project
+   workflows act a few seconds after a write (a new issue is auto-added to a
+   column; a card moved to Done closes its issue). So after a create, a status
+   change or a removal from the board settles, the TUI re-reads that issue
+   once, five seconds later, through the normal read path. One timer per
+   issue; a newer change restarts it; it is skipped while the issue has
+   pending changes.
 4. *Rejected.* The change is removed, so the fold no longer includes it and
    the screen returns to the truth with no rollback code. The error is shown.
    Later queued changes for that issue still run: they are independent set
@@ -365,7 +372,7 @@ deliberately not taken for v1.
 | Extra public step names for `partial` | The three of (6.5), plus internal `removed` |
 | An in-app vim mode | `$VISUAL` / `$EDITOR` hand-off |
 | A test fake that runs the real service over an in-memory backend | A direct in-memory fake (section 8), so the two tracks do not wait on each other |
-| A read of the issue after every successful change | The issue the write returns |
+| A read of the issue after every successful change | The issue the write returns, plus one delayed re-read after a create or a board change (section 5, rule 3) |
 
 ## 10. Dependencies
 

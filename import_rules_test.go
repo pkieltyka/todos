@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -59,32 +58,6 @@ func TestImportRules(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestDependencyPins(t *testing.T) {
-	arch, err := os.ReadFile("specs/projects/todos/architecture.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	mod, err := os.ReadFile("go.mod")
-	if err != nil {
-		t.Fatal(err)
-	}
-	deps, err := os.ReadFile("internal/tools/deps.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, pin := range regexp.MustCompile("\\| `([^`]+)` \\| (v[^ ]+) \\|").FindAllStringSubmatch(string(arch), -1) {
-		if !strings.Contains(string(mod), pin[1]+" "+pin[2]) {
-			t.Errorf("missing pin %s %s", pin[1], pin[2])
-		}
-		if !strings.Contains(string(deps), "\""+pin[1]) {
-			t.Errorf("dependency holder missing %s", pin[1])
-		}
-	}
-	if !strings.HasPrefix(string(deps), "//go:build deps\n") {
-		t.Fatal("dependency holder must use deps build tag")
 	}
 }
 

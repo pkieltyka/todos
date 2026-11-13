@@ -11,4 +11,4 @@ var skill []byte
 
 var version = "dev"
 
-func main() { cli.Main(skill, version) }
+func main() { cli.Main(skill, runtimeVersion(version)) }

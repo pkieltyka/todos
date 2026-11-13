@@ -4,10 +4,8 @@ Owner of this file: @pm. Only @pm edits it; ask @pm to add or change items.
 
 ## Now
 
-- [ ] Phase 5: Changes, core — @lead-dev — in progress
-- [ ] Phase 6: Changes, TUI — @frontend-dev — in progress (parallel with Phase 5)
-- [ ] Phase 7: Quick add, core — @lead-dev — not started (parallel with Phase 8)
-- [ ] Phase 8: Quick add, TUI — @frontend-dev — not started
+- [ ] Phase 7: Quick add, core — @lead-dev — in progress
+- [ ] Phase 8: Quick add, TUI — @frontend-dev — in progress (parallel with Phase 7)
 - [ ] Phase 9: Skill and release readiness — @lead-dev + @frontend-dev — not started
 
 ## Polish for Phase 9
@@ -17,9 +15,13 @@ Owner of this file: @pm. Only @pm edits it; ask @pm to add or change items.
 - [ ] A long label truncates at 80 columns in the issue list
 - [ ] Blank rows under the more line on the board
 - [ ] The browser opener may print over the TUI
+- [ ] Assignee and label pickers in the TUI must also list values the issue currently has even when the repository no longer lists them, so they can be removed
+- [ ] A joint dogfood of real writes through the TUI is still to do once Phases 7 and 8 are in
 
 ## Done
 
+- [x] Phase 5: Changes, core — @lead-dev — done; reviewed by @reviewer with no defects, committed as `14c6111`; `todos` can now create and change issues and move cards, and it was used to close issues 5, 11 and 12 and move issue 6 to In progress on the real board
+- [x] Phase 6: Changes, TUI — @frontend-dev — done; reviewed by @reviewer, two findings fixed, committed as `2410deb`
 - [x] Phase 4: First dogfood — @lead-dev + @frontend-dev — done; reviewed by @reviewer with one finding fixed, committed as `9fb1f65`; `todos` with no arguments now opens the real TUI against GitHub, and issues 1–14 exist on `pkieltyka/playg` and its board
 - [x] Phase 2: Read path, core — @lead-dev — done; reviewed by @reviewer and @frontend-dev, 13 findings fixed, committed as `2c49813`
 - [x] Phase 3: Read-only TUI — @frontend-dev — done; cross-reviewed by @lead-dev, 15 findings fixed, committed as `8771f7c`
@@ -48,6 +50,8 @@ Owner of this file: @pm. Only @pm edits it; ask @pm to add or change items.
 - The project board has a GitHub workflow that closes an issue when its card moves to Done — expected behaviour.
 - At the end of Phase 5, @lead-dev uses the `todos` binary itself to close issues 5, 11 and 12 and move issue 6 to In progress.
 - @lead-dev's session was compacted at the Phase 4 boundary.
+- Removing an assignee or label is judged against the issue itself, so a person who left the organisation can still be unassigned.
+- Six of nine phases are committed.
 - Decisions from Peter:
   - One repo and one board per run.
   - The board shows issue cards only and moves them between Status columns.
