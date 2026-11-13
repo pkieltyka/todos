@@ -81,7 +81,7 @@ func NewRoot(deps Dependencies) *cobra.Command {
 		return r.startTUI(cmd.Context(), tui.ViewIssues)
 	}
 	root.AddCommand(&cobra.Command{Use: "version", Short: "Print the todos version", GroupID: "other", Args: cobra.NoArgs, Example: "  todos version\n  todos version --json", RunE: func(*cobra.Command, []string) error { return writeVersion() }})
-	root.AddCommand(&cobra.Command{Use: "skill", Short: "Print the placeholder agent skill", GroupID: "other", Args: cobra.NoArgs, Example: "  todos skill\n  todos skill > SKILL.md", RunE: func(*cobra.Command, []string) error {
+	root.AddCommand(&cobra.Command{Use: "skill", Short: "Print the agent skill", GroupID: "other", Args: cobra.NoArgs, Example: "  todos skill\n  todos skill > SKILL.md", RunE: func(*cobra.Command, []string) error {
 		if showVersion {
 			return writeVersion()
 		}

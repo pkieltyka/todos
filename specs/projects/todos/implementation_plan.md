@@ -49,7 +49,7 @@ diff, the developer fixes what is found, @cto reviews and commits. @pm updates
   pending-change engine. Pickers. Create, edit and comment forms with the
   editor, preview and external-editor hand-off. Edit conflict check. Delete
   confirm. Toasts.
-- [ ] **Phase 7: Quick add, core** (core; parallel with Phase 8). The real
+- [x] **Phase 7: Quick add, core** (core; parallel with Phase 8). The real
   executor with pacing and stop rules, the draft store, `todos quick-add`.
 - [x] **Phase 8: Quick add, TUI** (TUI; parallel with Phase 7). Write, preview,
   progress and stopped steps; draft persistence and recovery.

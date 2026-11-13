@@ -8,9 +8,6 @@ import (
 	"github.com/pkieltyka/todos/internal/domain"
 )
 
-func notBuilt() error {
-	return &domain.Error{Kind: domain.ErrInternal, Message: "quick add is not built yet"}
-}
 func partial(cause error, issue *domain.Issue, completed []string) *domain.Error {
 	de := typed(cause).(*domain.Error)
 	out := domain.CloneError(de)
@@ -398,10 +395,4 @@ func (s *core) Delete(ctx context.Context, n int) error {
 		return err
 	}
 	return typed(s.backend.DeleteIssue(ctx, d.Issue.NodeID))
-}
-func (s *core) PlanQuickAdd(context.Context, string, domain.QuickAddOptions) (domain.QuickAddPlan, error) {
-	return domain.QuickAddPlan{}, notBuilt()
-}
-func (s *core) RunQuickAdd(context.Context, domain.QuickAddPlan, domain.QuickAddRunOptions) (domain.QuickAddResult, error) {
-	return domain.QuickAddResult{}, notBuilt()
 }

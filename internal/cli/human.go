@@ -267,6 +267,8 @@ func (r *runtime) textLine(w io.Writer, s string) {
 }
 func renderHuman(ctx context.Context, r *runtime, w io.Writer, value any) error {
 	switch v := value.(type) {
+	case QuickDTO:
+		return renderQuick(r, w, v)
 	case ChangeDTO, CommentResultDTO, DeletedDTO:
 		return renderChange(r, w, value)
 

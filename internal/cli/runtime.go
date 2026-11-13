@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/cli/go-gh/v2/pkg/auth"
-	"github.com/cli/go-gh/v2/pkg/browser"
 	ghrepo "github.com/cli/go-gh/v2/pkg/repository"
 	"github.com/google/shlex"
 	"github.com/pkieltyka/todos/internal/config"
@@ -69,6 +68,7 @@ type runtime struct {
 	issueOnBoard bool
 	listState    string
 	action       string
+	quickOptions domain.QuickAddOptions
 }
 type ListOptions struct {
 	Limit int
@@ -86,7 +86,7 @@ func completeDeps(d Dependencies) Dependencies {
 		d.RunTUI = tui.Run
 	}
 	if d.Open == nil {
-		d.Open = func(url string) error { return browser.New("", d.Out, d.Err).Browse(url) }
+		d.Open = quietBrowser
 	}
 	if d.Getenv == nil {
 		d.Getenv = os.Getenv
@@ -134,7 +134,7 @@ func completeDeps(d Dependencies) Dependencies {
 				}
 				return ref.Host, nil
 			}})
-			return Wiring{Service: service.New(client, settings, service.Options{ResolveRepository: resolve, Project: project, Now: d.Now}), ConfigWarning: settings.Warning}, nil
+			return Wiring{Service: service.New(client, settings, service.Options{ResolveRepository: resolve, Project: project, Now: d.Now}), Drafts: config.NewDraftStore(paths), ConfigWarning: settings.Warning}, nil
 		}
 	}
 	return d

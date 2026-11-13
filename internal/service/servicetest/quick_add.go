@@ -62,6 +62,8 @@ func (f *Fake) RunQuickAdd(ctx context.Context, plan domain.QuickAddPlan, opts d
 		outcome := domain.QuickAddOutcome("unattempted")
 		if item.Checked && p.Options.Checked == "skip" {
 			outcome = "skipped"
+		} else if opts.DryRun {
+			outcome = "planned"
 		}
 		result.Items[j] = domain.QuickAddItemResult{Item: item, Result: outcome}
 	}
@@ -96,7 +98,15 @@ func (f *Fake) RunQuickAdd(ctx context.Context, plan domain.QuickAddPlan, opts d
 						issue = &v
 					}
 				}
-				err = &domain.Error{Kind: domain.ErrPartial, Message: "quick add stopped: " + de.Message, Hint: "check created issues; send only the remaining source", Cause: de.Kind, Uncertain: de.Uncertain, Completed: []string{}, Issue: issue, Err: de}
+				cause := de.Kind
+				if de.Kind == domain.ErrPartial {
+					cause = de.Cause
+				}
+				uncertain := de.Uncertain
+				for _, row := range result.Items {
+					uncertain = uncertain || row.Result == "uncertain" || row.Error != nil && row.Error.Uncertain
+				}
+				err = &domain.Error{Kind: domain.ErrPartial, Message: "quick add stopped: " + de.Message, Hint: "check created issues; send only the remaining source", Cause: cause, Uncertain: uncertain, Completed: []string{}, Issue: issue, Err: de}
 			} else {
 				err = de
 			}
@@ -157,40 +167,30 @@ func (f *Fake) RunQuickAdd(ctx context.Context, plan domain.QuickAddPlan, opts d
 		}
 		if itemErr == nil {
 			change, e := f.CreateIssue(ctx, domain.NewIssue{Title: r.Item.Title, Body: r.Item.Body, Assignees: p.Options.Assignees, Labels: p.Options.Labels})
-			if e != nil {
-				itemErr = e
+			itemErr = e
+			fakeQuickIssue(r, change, e)
+			if e != nil && r.Issue == nil {
 				if normalise(e).Uncertain {
 					r.Result = "uncertain"
 				} else {
 					r.Result = "failed"
 				}
-			} else {
-				r.Result = "created"
-				i := change.Issue
-				r.Issue = &i
 			}
+
 		}
 		if itemErr == nil && r.Item.Checked {
 			itemErr = emit(j, "closing")
 			if itemErr == nil {
 				change, e := f.Close(ctx, r.Issue.Number, domain.CloseOptions{Reason: "completed"})
 				itemErr = e
-				if e == nil {
-					i := change.Issue
-					r.Issue = &i
-					r.Closed = i.State == "closed"
-				}
+				fakeQuickIssue(r, change, e)
 			}
 		} else if itemErr == nil && p.Options.AddToBoard {
 			itemErr = emit(j, "placing")
 			if itemErr == nil {
 				change, e := f.BoardAdd(ctx, r.Issue.Number, p.Options.Status)
 				itemErr = e
-				if e == nil {
-					i := change.Issue
-					r.Issue = &i
-					r.OnBoard = i.Board != nil
-				}
+				fakeQuickIssue(r, change, e)
 			}
 		}
 		if itemErr == nil && itemInjected != nil {
@@ -211,4 +211,24 @@ func (f *Fake) RunQuickAdd(ctx context.Context, plan domain.QuickAddPlan, opts d
 		}
 	}
 	return result, nil
+}
+
+func fakeQuickIssue(row *domain.QuickAddItemResult, change domain.Change, err error) {
+	var issue *domain.Issue
+	if err == nil && change.Issue.Number > 0 {
+		issue = &change.Issue
+	}
+	if err != nil {
+		de := normalise(err)
+		if de.Kind == domain.ErrPartial && de.Issue != nil {
+			issue = de.Issue
+		}
+	}
+	if issue != nil {
+		i := domain.CloneIssue(*issue)
+		row.Issue = &i
+		row.Result = "created"
+		row.Closed = i.State == "closed"
+		row.OnBoard = i.Board != nil
+	}
 }

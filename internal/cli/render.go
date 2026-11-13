@@ -37,7 +37,9 @@ func (r *runtime) printResult(ctx context.Context, value any) error {
 	if err != nil {
 		return domainError(err)
 	}
-	if _, doctor := value.(DoctorDTO); !doctor && ctx.Err() != nil {
+	_, doctor := value.(DoctorDTO)
+	_, quick := value.(QuickDTO)
+	if !doctor && !quick && ctx.Err() != nil {
 		return domainError(ctx.Err())
 	}
 	if err = writeOutput(r.deps.Out, buf.Bytes()); err != nil {
@@ -72,6 +74,8 @@ func summary(w io.Writer, shown, total int, truncated bool) {
 }
 func renderPiped(ctx context.Context, r *runtime, w io.Writer, value any) error {
 	switch v := value.(type) {
+	case QuickDTO:
+		return renderQuick(r, w, v)
 	case ChangeDTO, CommentResultDTO, DeletedDTO:
 		return renderChange(r, w, value)
 

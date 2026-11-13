@@ -56,7 +56,9 @@ func addReadCommands(root *cobra.Command, deps Dependencies, version func() erro
 	}}
 	root.AddCommand(pr)
 	parents["pr"] = pr
-	for _, spec := range append(commandSpecs(), writeCommandSpecs()...) {
+	specs := append(commandSpecs(), writeCommandSpecs()...)
+	specs = append(specs, quickAddCommand())
+	for _, spec := range specs {
 		parent := root
 		use := spec.Use
 		if len(use) > 6 && use[:6] == "board " {
@@ -107,7 +109,9 @@ func bindCommand(parent *cobra.Command, spec CommandSpec, r *runtime) *cobra.Com
 		}
 		value, err := spec.Run(cmd.Context(), r, cmd, args)
 		if err != nil {
-			if _, report := value.(DoctorDTO); !report {
+			_, report := value.(DoctorDTO)
+			_, quick := value.(QuickDTO)
+			if !report && !quick {
 				return domainError(err)
 			}
 		}
@@ -115,7 +119,10 @@ func bindCommand(parent *cobra.Command, spec CommandSpec, r *runtime) *cobra.Com
 			return renderErr
 		}
 		if err != nil {
-			return &reportedFailure{Err: err}
+			if _, doctor := value.(DoctorDTO); doctor {
+				return &reportedFailure{Err: err}
+			}
+			return domainError(err)
 		}
 		return nil
 	}

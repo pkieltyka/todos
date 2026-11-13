@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/pkieltyka/todos/internal/domain"
+	"github.com/pkieltyka/todos/internal/service/servicetest"
 	"reflect"
 	"testing"
 )
@@ -164,5 +165,38 @@ func TestFake_QuickAddGateCancel(t *testing.T) {
 	cancel()
 	if e := await(t, done); !errors.Is(e, context.Canceled) {
 		t.Fatal(e)
+	}
+}
+
+func TestFake_QuickAddKnownPartialCreateKeepsIssue(t *testing.T) {
+	f := fresh()
+	p, _ := f.PlanQuickAdd(context.Background(), "one\ntwo", domain.QuickAddOptions{})
+	i := servicetest.DefaultFixture().Issues[0].Issue
+	i.Number = 104
+	i.NodeID = "ISSUE_104"
+	i.Title = "one"
+	i.Board = nil
+	g := f.Hold("CreateIssue", 0)
+	g.ApplyThenFail(&domain.Error{Kind: domain.ErrPartial, Message: "created but assignment denied", Completed: []string{"created"}, Cause: domain.ErrForbidden, Issue: &i})
+	r, e := f.RunQuickAdd(context.Background(), p, domain.QuickAddRunOptions{})
+	de := wantKind(t, e, domain.ErrPartial)
+	if de.Cause != domain.ErrForbidden || r.Counts.Created != 1 || r.Items[0].Issue.Number != 104 || r.Counts.Unattempted != 1 {
+		t.Fatal(r, e)
+	}
+}
+func TestFake_QuickAddSettledSaveFailureRetainsUncertainty(t *testing.T) {
+	f := fresh()
+	p, _ := f.PlanQuickAdd(context.Background(), "one\ntwo", domain.QuickAddOptions{})
+	g := f.Hold("CreateIssue", 0)
+	g.ApplyThenFail(&domain.Error{Kind: domain.ErrTimeout, Message: "timeout", Uncertain: true})
+	r, e := f.RunQuickAdd(context.Background(), p, domain.QuickAddRunOptions{OnProgress: func(p domain.QuickAddProgress) error {
+		if p.Phase == "settled" {
+			return errors.New("disk full")
+		}
+		return nil
+	}})
+	de := wantKind(t, e, domain.ErrPartial)
+	if de.Cause != domain.ErrConfig || !de.Uncertain || r.Counts.Uncertain != 1 || r.Items[0].Issue != nil || r.Items[0].Error.Kind != domain.ErrTimeout {
+		t.Fatal(r, e)
 	}
 }
