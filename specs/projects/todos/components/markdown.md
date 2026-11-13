@@ -47,7 +47,7 @@ type Style int
 const (
     Dark  Style = iota // glamour DarkStyleConfig
     Light              // glamour LightStyleConfig
-    Plain              // glamour NoTTYStyleConfig: no colour, ASCII decorations
+    Plain              // glamour NoTTYStyleConfig, then every escape sequence stripped: no colour, no OSC 8
 )
 
 type Options struct {
@@ -94,7 +94,7 @@ func (r *Renderer) Render(src string, width int, s Style) (string, error)
 | 2 | `\r\n` → `\n`, then a lone `\r` → `\n` | a bare CR moves the terminal cursor |
 | 3 | Remove every well-formed escape sequence (CSI, OSC, DCS, APC, PM, SOS, two-byte ESC) with `ansi.Strip` (x/ansi v0.11.9, *read*) | colours, cursor moves, OSC 52 clipboard writes, OSC 8 links |
 | 4 | Delete every remaining rune in U+0000–U+0008, U+000B–U+001F, U+007F–U+009F. Keep `\t` and `\n` | a lone ESC, BEL, and C1 controls as runes (U+009B is a one-character CSI) |
-| 5 | Replace `&#[0-9]+;` and `&#[xX][0-9a-fA-F]+;` with `�` when the value is in a rule 4 range or above U+10FFFF | see below |
+| 5 | Replace `&#[0-9]+;?` and `&#[xX][0-9a-fA-F]+;?` (the semicolon is optional, the digit runs greedy) with `\uFFFD` when the value is in a rule 4 range, is a rule 6 bidi control, or is above U+10FFFF | see below |
 | 6 | Delete bidi controls U+202A–U+202E and U+2066–U+2069 | disguised text ("Trojan Source"); not a terminal control, but misleading |
 
 **Rule 5 is necessary.** Rules 1–4 clean the *source*, but rendering decodes
@@ -107,9 +107,16 @@ entities afterwards:
   `html.UnescapeString` (`ansi/context.go`, `SanitizeHTML`, *read*), which
   decodes entities again.
 
-Without rule 5, a body containing `&#27;[2J` would clear the user's screen.
-Named references cannot produce control characters, so only numeric ones are
-handled.
+- glamour also applies Go's `html.UnescapeString` to text, and that decoder
+  accepts a numeric reference **without** its trailing semicolon: `&#27[2J`
+  and `&#X1` decode to control characters too (found by
+  `FuzzRender_onlySGRandOSC8`, fixed in Phase 3). So the semicolon is
+  optional in rule 5, and the digit runs are greedy exactly as the decoder's
+  are.
+
+Without rule 5, a body containing `&#27;[2J`, or `&#27[2J`, would clear the
+user's screen. Named references cannot produce control characters, so only
+numeric ones are handled.
 
 `SanitizeLine(s)`: `SanitizeBody(s)`, then `\n` and `\t` → space, then runs
 of whitespace collapse to one space, then trim. Entities are not decoded for
@@ -136,8 +143,8 @@ Markdown or as an HTML `<img>` tag". This pre-pass is part of v1.
 ### 4.1 The `<img>` pre-pass
 
 ```go
-// rewriteImages replaces every <img> tag inside raw HTML with visible text.
-// It runs on sanitised source, before glamour.
+// rewriteImages replaces every <img> tag inside raw HTML with a Markdown
+// image. It runs on sanitised source, before glamour.
 func rewriteImages(src string) string
 ```
 
@@ -147,26 +154,34 @@ func rewriteImages(src string) string
    means "inside HTML" is decided exactly as glamour will decide it. Code
    blocks and code spans are never `HTMLBlock` or `RawHTML` nodes, so code is
    never touched.
-2. Walk the AST and collect the byte segments of every `ast.HTMLBlock` (its
-   `Lines()`) and `ast.RawHTML` (its `Segments`).
-3. Inside each segment, tokenise with `golang.org/x/net/html` (already a
-   dependency through bluemonday). For each `img` start or self-closing tag,
-   read `src` and `alt`.
-4. Replace the tag's bytes with the text `Image: ALT → SRC`, where:
+2. Walk the AST. Each `ast.HTMLBlock` and `ast.RawHTML` node is taken as **one
+   range**, from its first segment to its last (plus the block's closure
+   line). A tag whose attributes span several lines is then seen whole.
+3. Tokenise each range with `golang.org/x/net/html`. For each `img` start or
+   self-closing tag, read `src` and `alt`.
+4. Replace the tag with a Markdown image, `![ALT](<SRC>)`:
    - `ALT` and `SRC` are `SanitizeLine`d. The tokenizer decodes entities, so
      this repeats rule 5 for attribute values.
    - `ALT` defaults to `image` when empty or absent. GitHub's pasted
-     screenshots use `alt="image"`.
-   - `<`, `>` and `&` in the inserted text are written as `&lt;`, `&gt;` and
-     `&amp;`. bluemonday keeps them as text, and glamour's
-     `html.UnescapeString` turns them back into literal characters.
+     screenshots use `alt="image"`. Every ASCII punctuation character in
+     `ALT` is backslash-escaped, so it stays literal text.
+   - `SRC` goes into an angle-bracket link destination, not into text, so
+     GFM's autolink never reads it and `&` in a query string, or
+     parentheses, reach the link target unchanged. goldmark does not undo
+     backslash escapes there, so `<`, `>` and `\` are percent-encoded and
+     `&` is left as is. An entity-shaped `&name;` would be decoded, which
+     cannot produce a control character because `SanitizeLine` has already
+     neutralised numeric references.
+   - Inside an HTML block, the image is surrounded by blank lines, which end
+     the HTML block, so it is read as Markdown.
    - An `img` without `src` is replaced with nothing.
 5. Apply the replacements from the end of the source to the start, so
    earlier offsets stay valid.
 
-The text form matches how glamour shows a Markdown image (`ImageText`
-format `Image: {{.text}} →` followed by the URL, `ansi/image.go`, *read*). The
-two kinds of image look alike.
+glamour then shows the result exactly as it shows an image written in
+Markdown (`Image: ALT → URL`, `ansi/image.go`, *read*). The two kinds of image
+look the same. Relative paths resolve against `Options.BaseURL`, as for
+Markdown images.
 
 ---
 
@@ -181,15 +196,19 @@ func guard(out string) bool
 It walks `out` with x/ansi's parser (`ansi.NewParser`, *read*). It accepts:
 
 - CSI sequences whose final byte is `m` (SGR)
-- OSC sequences with command `8` (hyperlinks)
-- `\n`
+- OSC sequences with command `8` (hyperlinks), ended by BEL or ST
+- `\n` and `\t`
 - printable runes
 
 Anything else (another CSI, any other OSC, DCS, a C0 or C1 control, a lone
-ESC) makes `guard` return false.
+ESC, or a bidi control rune) makes `guard` return false. It is a small
+dedicated scanner, not x/ansi's general parser: the accepted grammar is tiny,
+and being strict is the point.
 
 When `guard` fails, `Render` returns `ansi.Wordwrap(SanitizeBody(src), width,
-"")` with no styling, and caches that. That case means the sanitiser has a
+"")` with no styling, and caches that. The glamour step is a field of the
+`Renderer` (`render`), so a test can push forbidden output through this exact
+production path (`TestRender_guardFallbackIsPlainWrapped`). That case means the sanitiser has a
 hole. `FuzzRender` exists to find such holes (8).
 
 ---
@@ -257,7 +276,11 @@ The `Render(src, width, s)` pipeline:
 3. Take the instance for `(width, s)`, creating it if needed, then lock it and
    call `r.Render(clean)`.
 4. If `guard(out)` fails, `out` becomes the plain fallback (5).
-5. Trim trailing blank lines. Store `out` under `k` and return it.
+5. With `Plain`, strip every escape sequence (`ansi.Strip`). glamour's NoTTY
+   style still emits OSC 8 hyperlinks, as do both of its hyperlink modes, and
+   `Plain` is what `NO_COLOR` and `--no-color` select. Link text and URL stay
+   as plain text.
+6. Trim leading and trailing blank lines. Store `out` under `k` and return it.
 
 - `r.mu` guards only the maps, never a glamour call, so renders of different
   widths or styles run in parallel.
@@ -316,6 +339,8 @@ All tests are table tests or fuzz tests, with no network and no terminal.
 - `TestRewriteImages_noSrcRemoved`
 - `TestRewriteImages_attributeEntitiesSanitised` (`alt="&#27;[31m"`)
 - `TestRewriteImages_escapesAngleBrackets`
+- `TestRewriteImages_queryStringAndParensKept` (`&amp;` in `src` reaches the link target as `&`)
+- `TestRewriteImages_multilineTag` (attributes across lines, inline and in an HTML block)
 
 **rendering**
 - `TestRender_htmlCommentDropped`
@@ -324,6 +349,9 @@ All tests are table tests or fuzz tests, with no network and no terminal.
 - `TestRender_htmlImageShowsLink`
 - `TestRender_widthEqualsWrap` (no line wider than `width`, at 40, 80, 100)
 - `TestRender_plainHasNoSGR`
+- `TestRender_plainHasNoEscapes` (NO_COLOR: no OSC 8 either; link text and URL kept)
+- `TestRender_bidiReferencesNeutralised` (`&#8238;` and friends)
+- `TestGuard_rejectsForbiddenAcceptsSGRandOSC8`
 - `TestRender_guardFallbackIsPlainWrapped` (inject a renderer output containing `ESC[2J`)
 - `TestRender_codeBlockHighlightedDarkAndLight`
 - `TestRender_relativeLinkUsesBaseURL`

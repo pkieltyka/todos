@@ -4,11 +4,8 @@ Owner of this file: @pm. Only @pm edits it; ask @pm to add or change items.
 
 ## Now
 
-@reviewer is cross-checking the component docs against the architecture.
-
-- [ ] Phase 1: Foundation — @lead-dev — in progress
-- [ ] Phase 2: Read path, core — @lead-dev — not started (parallel with Phase 3)
-- [ ] Phase 3: Read-only TUI — @frontend-dev — standing by; starts when @lead-dev signals that go.mod, domain and the fake compile
+- [ ] Phase 2: Read path, core — @lead-dev — in progress
+- [ ] Phase 3: Read-only TUI — @frontend-dev — in progress, started when the foundation compiled
 - [ ] Phase 4: First dogfood — @lead-dev + @frontend-dev — not started
 - [ ] Phase 5: Changes, core — @lead-dev — not started (parallel with Phase 6)
 - [ ] Phase 6: Changes, TUI — @frontend-dev — not started
@@ -18,6 +15,8 @@ Owner of this file: @pm. Only @pm edits it; ask @pm to add or change items.
 
 ## Done
 
+- [x] Phase 1: Foundation — @lead-dev — done; reviewed by @reviewer and @cto, six review fixes applied, committed as `30edb85`
+- [x] Component docs cross-checked against the architecture — @reviewer — six findings, all fixed
 - [x] Spec steps 1–4 + implementation plan — @cto — overview, functional spec, UI design, architecture with six component docs, implementation plan: all approved and committed on branch `todos-v1` as `fee30a2`
 - [x] Contradiction check of the approved spec documents — @reviewer — ten findings, all fixed in the specs
 - [x] Peter granted the gh token the project scope (`gh auth refresh -s project`)
@@ -33,6 +32,8 @@ Owner of this file: @pm. Only @pm edits it; ask @pm to add or change items.
 - Work happens on branch `todos-v1`; nothing is pushed.
 - Each phase: developer, `make check`, @reviewer, fixes, @cto review and commit.
 - The shared test fake is a direct in-memory implementation in `internal/service/servicetest`.
+- Reviews of code go into the `reviews/` folder, which git ignores.
+- Commits are made by path, so one track's unfinished work never lands in the other's commit.
 - Decisions from Peter:
   - One repo and one board per run.
   - The board shows issue cards only and moves them between Status columns.

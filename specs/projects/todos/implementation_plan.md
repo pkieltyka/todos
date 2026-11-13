@@ -20,7 +20,7 @@ diff, the developer fixes what is found, @cto reviews and commits. @pm updates
 
 ## Phases
 
-- [ ] **Phase 1: Foundation** (core). `go.mod` with every pinned dependency,
+- [x] **Phase 1: Foundation** (core). `go.mod` with every pinned dependency,
   held by `internal/tools/deps.go`. `domain` types and the error type. The
   `Service`, `Backend` and `SettingsStore` interfaces. `servicetest.Fake` as a
   direct in-memory implementation: every read, every single-issue change and
@@ -28,12 +28,12 @@ diff, the developer fixes what is found, @cto reviews and commits. @pm updates
   methods return an `internal` error until Phase 5. `main.go` and the cobra
   root with `version`, `help` and a placeholder `skill`. `TestImportRules`.
   The check script and CI workflow.
-- [ ] **Phase 2: Read path, core** (core; parallel with Phase 3). The `github`
+- [x] **Phase 2: Read path, core** (core; parallel with Phase 3). The `github`
   client: credentials, documents, mapping, paging, error classification, rate
   tracking. `config` for the remembered board. Service reads: session,
   repository and board resolution, issues, pull requests, board, labels,
   assignees, doctor. CLI read commands with text, piped and JSON output.
-- [ ] **Phase 3: Read-only TUI** (TUI; parallel with Phase 2). `markdown`.
+- [x] **Phase 3: Read-only TUI** (TUI; parallel with Phase 2). `markdown`.
   Frame, theme, keymap, store with progressive loading and refresh. Issue list
   and detail, pull request list and detail, board, board setup states, help,
   too-small state. Golden renders.

@@ -1,0 +1,24 @@
+ todos  pkieltyka/todos    1 Issues  2 PRs  3 Board                             
+ Board                                                                          
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+         The board needs the "project" permission on your GitHub token.         
+                                                                                
+         Run:  gh auth refresh -s project                                       
+         then press r.                                                          
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+ ? help                                                                         

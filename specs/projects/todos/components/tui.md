@@ -99,9 +99,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd)
 func (a *App) View() tea.View
 ```
 
-- `Run` builds `tea.NewProgram(New(deps, opts), tea.WithContext(ctx))` and
-  runs it. `ctx` is the program context. Cancelling it aborts every request
-  in flight.
+- `Run` derives a child context it owns, builds
+  `tea.NewProgram(New(deps, opts), tea.WithContext(child))`, runs it, and
+  cancels the child on every exit (`defer`). Every read descends from it, so
+  no Service call outlives the program, whether it ended by `q`, `ctrl+c` or
+  the caller's cancellation (review finding 9).
 - `cli` reads `TODOS_THEME`, `VISUAL` and `EDITOR` once and splits the editor
   command with `github.com/google/shlex`, which go-gh's `pkg/browser`
   already uses. `cli` also prints a warning on standard error for an invalid
@@ -291,9 +293,10 @@ feed the asOf rule (7.2).
 | `sessionMsg{req, sent, s domain.Session, err}` | `Service.Session` | App: viewer and repo. On error every tab shows its failed state |
 | `labelsMsg{req, sent, labels, err}` | `Service.Labels` | App → `store.meta`, then any open label picker |
 | `usersMsg{req, sent, users, err}` | `Service.AssignableUsers` | App → `store.meta`, then any open assignee picker |
-| `boardInfoMsg{req, sent, info, err}` | `Service.BoardInfo` | App → `store.board.info`. Setup errors switch the Board stack (4.2) |
+| `boardMsg{req, sent, info, board, err}` | one Cmd: `Service.BoardInfo`, then `Service.Board` (and `RefreshMetadata` first on recovery) | App → `store.board`. Setup errors switch the Board stack (4.2). Info and cards always come from the same request (finding 4) |
+| `recoveredMsg{req, sent, s domain.Session, err}` | one Cmd: `Service.RefreshMetadata`, then `Service.Session` | App: store the session, then restart the visible read (7.6, finding 2) |
 | `candidatesMsg{req, sent, res domain.ProjectsResult, err}` | `Service.BoardCandidates` | BoardSetup (Several), Picker(Project) |
-| `boardChosenMsg{req, sent, project, err}` | `Service.UseBoard` | App: clear `store.board`, then load `BoardInfo` and `Board` |
+| `boardChosenMsg{req, sent, project, err}` | `Service.UseBoard` | App: clear every cached placement, cancel issue and board reads, then reload the board, the issue list and open issue details (finding 3) |
 | `issuesPageMsg{req, sent, q IssueQuery, page, err}` | `Service.ListIssues` | App → `store.issues` (7.3) |
 | `prsPageMsg{req, sent, q PRQuery, page, err}` | `Service.ListPRs` | App → `store.prs` |
 | `boardMsg{req, sent, board, err}` | `Service.Board` | App → `store.board` (7.5) |
@@ -352,7 +355,8 @@ type LoadReason int // Initial, Refresh, Auto, QueryChanged, Reread, Precheck, O
 // reads
 type LoadSession  struct{}
 type LoadMeta     struct{ Labels, Users bool }
-type LoadBoardInfo struct{ Refresh bool }               // Refresh → RefreshMetadata first
+type LoadBoard struct{ RefreshMeta bool }               // BoardInfo, then Board, in one request
+type Recover struct{}                                   // RefreshMetadata, then Session (7.6)
 type LoadCandidates struct{}
 type ChooseBoard  struct{ Ref domain.ProjectRef }
 type LoadIssues   struct{ Q IssueQuery; Reason LoadReason }
@@ -420,7 +424,7 @@ func write[T any](parent context.Context, clock func() time.Time,
 ### 6.3 Slots: matching results and dropping stale ones
 
 ```go
-type SlotKind int // Session, Labels, Users, BoardInfo, Candidates, Board, Issues, PRs, Issue, IssueComments, PR, PRComments, Plan
+type SlotKind int // Session, Recover, Labels, Users, Candidates, Choose, Board, Issues, PRs, Issue, IssueComments, PR, PRComments, Plan
 
 type Slot struct { Kind SlotKind; Number int }   // Number is 0 for non-item slots
 
@@ -485,12 +489,19 @@ type ListCache[Q comparable] struct {
 
 type PRListCache struct {                  // PRs are not in the optimistic log
     Query PRQuery
-    Items []domain.PullRequest
-    index map[int]int
+    Numbers []int                          // summaries live in Store.prs
     Total int; Cursor string; HasMore bool; Phase LoadPhase
     LoadedAt time.Time; Err *domain.Error; Truncated bool
     next *PRListCache
 }
+
+// PREntry is one pull request summary under the same asOf rule as issues:
+// a newer list page is never masked by an older detail (finding 6).
+type PREntry struct {
+    Base domain.PullRequest
+    AsOf time.Time
+}
+func (s *Store) PutPR(p domain.PullRequest, asOf time.Time) bool
 
 type BoardCache struct {
     Info     *domain.BoardInfo             // Project, ordered Status options
@@ -501,9 +512,10 @@ type BoardCache struct {
     Err      *domain.Error
 }
 
-type ColumnOrder struct {
-    Status  *string                        // nil = "No status"
-    Numbers []int                          // GitHub's order
+type ColumnOrder struct {                  // one column as the Board call returned it
+    Status   *string                       // nil = "No status"
+    OptionID string
+    Numbers  []int                         // GitHub's order
 }
 
 type DetailEntry struct {
@@ -513,9 +525,14 @@ type DetailEntry struct {
     CommentsTotal int
     CommentsPhase LoadPhase
     LoadedAt      time.Time
-    Err           *domain.Error
+    BodyErr       *domain.Error            // body and comments are separate requests
+    CommentsErr   *domain.Error            // with separate errors (finding 5)
     nextComments  []domain.Comment         // refresh being assembled
 }
+// PRDetailEntry has DetailErr and CommentsErr the same way.
+
+// ClearPlacements forgets every placement as of t (board switch, finding 3).
+func (s *Store) ClearPlacements(t time.Time)
 
 type Meta struct {
     Viewer  string
@@ -598,9 +615,13 @@ case-insensitively by substring, against the *effective* issue.
 
 ### 7.5 The board is derived (A5)
 
-`boardMsg` stores each card's issue with `Put(card.Issue, sent)` and records
-`Order` from `board.Columns`: one `ColumnOrder` per column, in option order,
-with "No status" first.
+`boardMsg` carries `BoardInfo` and the board from **one** request, so they
+can never disagree (finding 4). It stores each card's issue with
+`Put(card.Issue, sent)` and records `Order` from `board.Columns`: one
+`ColumnOrder` per returned column, in the order returned. **The displayed
+columns, their names and their order come from `Order`, not from
+`BoardInfo.Options`.** A Status renamed on GitHub therefore shows under its
+new name on the next refresh, with its cards.
 
 Displayed columns are computed from the store, never from cards:
 
@@ -609,7 +630,7 @@ func (s *Store) Columns(p *PendingSet) []DisplayColumn {
     // 1. Membership: every issue whose effective placement is on the board.
     //    Candidates are the numbers in Order plus every issue in the store
     //    with a pending board patch.
-    // 2. For each column c in Info's option order (plus "No status" first):
+    // 2. For each column c in Order's order (plus "No status" first):
     //      first: numbers in c.Numbers (GitHub order) whose effective status == c
     //             and whose base status == c
     //      then:  every other member whose effective status == c, by ascending number
@@ -641,12 +662,26 @@ with a different `Reason`.
   is complete. Issue contents are `Put` as each page arrives, under the asOf
   rule. On failure, `next` is discarded, the old `Numbers` stays, `Err` is set,
   the header shows stale (UI 5.3), and a banner appears (UI 3.14).
-- **Board:** `Board(ctx)` replaces `Order`, `Hidden` and the truncation flags
-  whole, and `Put`s the cards. `r` on a `BoardSetup` screen first sends
-  `LoadBoardInfo{Refresh: true}`: `RefreshMetadata`, then `BoardInfo`, then
-  `Board`. That is how the user recovers after `gh auth refresh -s project`.
+- **Board:** one request reads `BoardInfo`, then `Board`, and replaces
+  `Info`, `Order`, `Hidden` and the truncation flags whole, and `Put`s the
+  cards.
 - **Detail:** `GetIssue` (or `GetPR`), and comments page 1 onward into
-  `nextComments`, swapped in whole when complete.
+  `nextComments`, swapped in whole when complete. A detail counts as in
+  flight while **either** its body or its comments slot is busy, so a refresh
+  never cancels comments that are still paging (finding 8). A failed refresh
+  keeps the old body and shows `⚠ Refresh failed: … · r retry` plus the hint
+  above it. A failed comments request shows `✗ Couldn't load comments: …`
+  plus the hint, even when the body loaded (findings 5 and 10).
+- **Recovery after an auth or setup error** (finding 2, @cto's ruling): when
+  the visible view's error is `auth`, `missing_scope`, `no_repo`, `no_board`,
+  `issues_disabled` or `config`, or the board tab shows `BoardSetup`, `r`
+  first sends one request that calls `RefreshMetadata`, then `Session`. The
+  account may have changed, so the session (viewer) is stored again, then the
+  visible read restarts. Other errors are retried directly.
+- **Choosing another project** (`ChooseBoard`, finding 3): on success, every
+  cached placement is cleared as of now, so the asOf rule rejects any read
+  sent before the switch. Issue and board reads in flight are cancelled, and
+  the board, the issue list (if loaded) and every open issue detail reload.
 - **Metadata:** every picker open sends `LoadMeta` in the background. The
   service memoises it for 60 s (A3). The picker opens at once from `meta`.
   When the fresh list lands, the picker updates and keeps its cursor by name.
@@ -664,7 +699,10 @@ There is one `tea.Tick(60s)` chain with a generation. On
    - `svc.RateLimit()` is `Known` with `Remaining < Limit/10` (10). The header
      shows `⏸ auto-refresh paused · N% left` (UI 5.3)
    - the visible view's slot has a request in flight
-   - the visible view finished a load less than 30 s ago
+   - the visible view finished a load less than 30 s ago. A view that has
+     never loaded successfully (its first load failed) counts as infinitely
+     old, so the next tick retries it, and so does switching to its tab
+     (finding 7).
    - the terminal is too small
 4. Otherwise refresh **only the visible view**: the top screen of the active
    tab. A hidden tab refreshes when the user switches to it, if its data is
@@ -1219,7 +1257,7 @@ The drawings are in UI 3. This section covers the logic behind them.
 | IssueDetail | One viewport holds the body plus every comment, each rendered separately (`markdown.Key` per body and per comment). `anchors` are recomputed after every render, for `]`/`[`. On open it sends `LoadIssue{Open}`, and if the entry is less than 60 s old it shows it at once. |
 | PRList, PRDetail | Read-only. `m` toggles the local author filter. `Closes` is plain text (UI 9 #9). |
 | Board | Columns from `Store.Columns` (7.5). `<`/`>` use `Info.Options` order. They do nothing on an issue with no effective placement (toast, UI 4). `n` and `A` pass the focused column, with `AddToBoard: true` (8.9, 12.1). `i` shows the hidden-items toast. `P` opens Picker(Project) from `BoardCandidates`. |
-| BoardSetup | NoBoard, MissingScope and NoStatusField show UI 3.16 text with the hint from the error. In NoBoard and NoStatusField, `P` opens Picker(Project) from `BoardCandidates` (UI 3.16). Several shows the list from `de.Candidates` (A6), and `enter` sends `ChooseBoard`. `r` sends `LoadBoardInfo{Refresh: true}` in every state (4.2 table). |
+| BoardSetup | NoBoard, MissingScope and NoStatusField show UI 3.16 text with the hint from the error. In NoBoard and NoStatusField, `P` opens the project list from `BoardCandidates` (UI 3.16). If that list fails, the picker leaves its loading state, shows the reason and hint, and `P` tries again (finding 11). Several shows the list from `de.Candidates` (A6), and `enter` sends `ChooseBoard`. `r` runs the recovery of 7.6 in every state. |
 
 The status picker (`M`) lists, in this order:
 
@@ -1708,6 +1746,15 @@ WithInitialTermSize(w, h))`, `Send`, `Type`, `WaitFor`, `FinalModel`,
 - `TestBoard_setupStates_noBoard_several_missingScope_noStatusField`
 - `TestBoardSetup_stateByCandidateCount`
 - `TestBoardSetup_PChoosesProjectInNoBoardAndNoStatusField`
+- `TestBoardSetup_candidatesFailureShowsErrorAndRetry`
+- `TestBoard_renamedStatusKeepsCards`
+- `TestChooseBoard_clearsOldPlacementsAndReloads`
+- `TestRecovery_authRetryRefreshesMetadataAndSession`, `TestRecovery_networkRetryIsPlain`
+- `TestDetail_commentsErrorSurvivesBodySuccess`, `TestDetail_refreshFailureShowsReasonAndHint`
+- `TestPRs_newerListBeatsOlderDetail`
+- `TestAutoRefresh_retriesFailedInitialLoad`, `TestAutoRefresh_doesNotCancelCommentPaging`
+- `TestIssues_staleSameQueryPageDropped`, `TestDetail_stalePopResultDropped` (fail with the request-ID check removed)
+- `TestRun_cancelsReadsOnQuit`
 - `TestBoard_refreshOnSetupCallsRefreshMetadataFirst`
 - `TestBoard_chooseProjectReloadsInfoThenBoard`
 
