@@ -64,13 +64,26 @@ type Screen interface {
 // Overlay sits on top of every screen; the top overlay has focus
 // (tui.md 4.3). Phase 3 has only Help.
 type Overlay interface {
+	// Update gets ActionMsg for its actions, raw keys otherwise (and always
+	// in text mode), and every write result, which it ignores unless the
+	// result is its own.
 	Update(c *Ctx, msg tea.Msg) (tea.Cmd, OverlayResult)
 	View(c *Ctx, body Rect) (content string, box Rect)
 	Actions(c *Ctx) []Action
+	Hints(c *Ctx) []hint    // its footer
+	Position(c *Ctx) string // footer right side, e.g. "L4:C19"
 	Mode() InputMode
-	Cursor(c *Ctx) *tea.Cursor
-	Busy() bool
+	Cursor(c *Ctx) *tea.Cursor // in frame coordinates
+	Busy() bool                // its own request is in flight
 }
+
+// overlayLayout is implemented by overlays that size their parts (the editor)
+// from the frame. The App calls it after every Update, so sizes are right
+// before the first draw: a preview toggled earlier would render at width 0.
+type overlayLayout interface{ layout(c *Ctx) }
+
+// overlayRenders is implemented by overlays with a Markdown preview.
+type overlayRenders interface{ Renders(c *Ctx) []renderReq }
 
 // OverlayResult tells the App whether to keep the overlay.
 type OverlayResult int

@@ -145,7 +145,7 @@ func DefaultKeymap() Keymap {
 var helpOverrides = map[ScreenID]map[Action][2]string{
 	ScreenIssues:     {ActBack: {"esc", "clear filter"}},
 	ScreenPRs:        {ActBack: {"esc", "clear filter"}},
-	ScreenBoard:      {ActBack: {"esc", "clear filter"}, ActNew: {"n", "new here"}, ActDown: {"j/k", "card"}, ActLeft: {"h/l", "column"}},
+	ScreenBoard:      {ActBack: {"esc", "clear filter"}, ActNew: {"n", "new here"}, ActDown: {"j/k", "card"}, ActLeft: {"h/l", "column"}, ActStatusPrev: {"</>", "move"}},
 	ScreenIssue:      {ActDown: {"j/k", "scroll"}},
 	ScreenPR:         {ActDown: {"j/k", "scroll"}, ActNextComment: {"]/[", "comments"}},
 	ScreenBoardSetup: {ActOpen: {"enter", "use and remember"}, ActBack: {"esc", "cancel"}},
@@ -164,6 +164,7 @@ func HelpText(s ScreenID, a Action, k Keymap) (string, string) {
 // Paired actions are shown once in the footer ("j/k move").
 var footerPairs = map[Action][3]string{
 	ActDown:        {"j/k", "move", ""},
+	ActStatusPrev:  {"</>", "move", ""},
 	ActLeft:        {"h/l", "column", ""},
 	ActNextComment: {"]/[", "comments", ""},
 }
@@ -172,7 +173,14 @@ var footerPairs = map[Action][3]string{
 var footerHidden = map[Action]bool{
 	ActUp: true, ActRight: true, ActPrevComment: true, ActTop: true, ActBottom: true,
 	ActHalfDown: true, ActHalfUp: true, ActViewIssues: true, ActViewPRs: true, ActViewBoard: true,
-	ActNextView: true, ActPrevView: true, ActQuit: true,
+	ActNextView: true, ActPrevView: true, ActQuit: true, ActStatusNext: true,
+}
+
+// footerShort are the footer's short descriptions (UI mocks: "n new  e edit
+// x close"); the help screen keeps the long ones.
+var footerShort = map[Action]string{
+	ActNew: "new", ActEdit: "edit", ActClose: "close", ActAssign: "assign", ActLabel: "label",
+	ActComment: "comment", ActStatus: "status", ActDelete: "delete", ActCloseNotPlanned: "not planned",
 }
 
 // helpGroup is a column of the help screen (UI 3.13).

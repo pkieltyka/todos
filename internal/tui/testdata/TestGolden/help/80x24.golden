@@ -2,17 +2,17 @@
  open ▾ · mine: off · filter: —                                   4 open issues
  Help · Issues
 ────────────────────────────────────────────────────────────────────────────────
- Navigate                               Views & app
- j/k ↓/↑   move                         1 2 3     views
- g/G       top/bottom                   tab       next view
- ctrl+d/u  half page                    r         refresh
- enter     open                         /         filter
-                                        m         only mine
-                                        s         state
-                                        o         open in browser
-                                        y         copy URL
-                                        ?         help
-                                        q         quit
+ Navigate                  Issue actions             Views & app
+ j/k ↓/↑   move            n    new issue            1 2 3  views
+ g/G       top/bottom      e    edit title/body      tab    next view
+ ctrl+d/u  half page       a    assignees            r      refresh
+ enter     open            L    labels               /      filter
+                           c    comment              m      only mine
+                           x    close / reopen       s      state
+                           X    close as not planned o      open in browser
+                           M    board status         y      copy URL
+                           < >  move on board        ?      help
+                           D    delete               q      quit
 
 
 

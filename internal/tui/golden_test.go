@@ -117,6 +117,84 @@ func TestGolden(t *testing.T) {
 			h.press("y")
 			return h
 		}},
+		{"create_form", func(t *testing.T) *harness {
+			h := newHarness(t, richFixture())
+			h.press("n")
+			h.typeText("Fix the header at 80 columns")
+			h.press("tab")
+			return h
+		}},
+		{"create_form_preview", func(t *testing.T) *harness {
+			h := newHarness(t, richFixture())
+			h.press("n")
+			h.typeText("Title")
+			h.press("tab", "tab", "tab", "tab")
+			h.typeText("Some **bold** text")
+			h.press("ctrl+r")
+			return h
+		}},
+		{"edit_conflict", func(t *testing.T) *harness {
+			h := newHarness(t, richFixture())
+			h.press("e")
+			h.typeText("!")
+			h.fake.Mutate(func(f *servicetest.Fixture) { f.Issues[0].Body = "changed" })
+			h.press("ctrl+s")
+			return h
+		}},
+		{"comment_form", func(t *testing.T) *harness {
+			h := newHarness(t, richFixture())
+			h.press("enter", "c")
+			h.typeText("Reproduced on master.")
+			return h
+		}},
+		{"assignee_picker", func(t *testing.T) *harness {
+			h := newHarness(t, richFixture())
+			h.press("a")
+			return h
+		}},
+		{"label_picker", func(t *testing.T) *harness {
+			h := newHarness(t, richFixture())
+			h.press("L", "j")
+			return h
+		}},
+		{"status_picker", func(t *testing.T) *harness {
+			h := newHarness(t, richFixture())
+			h.press("M")
+			return h
+		}},
+		{"delete_confirm", func(t *testing.T) *harness {
+			h := newHarness(t, richFixture())
+			h.press("D")
+			h.typeText("6")
+			return h
+		}},
+		{"quit_confirm", func(t *testing.T) *harness {
+			h := newHarness(t, richFixture())
+			h.hold("Close", 6)
+			h.press("x", "q")
+			return h
+		}},
+		{"pending_markers_list", func(t *testing.T) *harness {
+			h := newHarness(t, richFixture())
+			h.hold("Close", 6)
+			h.press("x", "j")
+			g := h.hold("Close", 5)
+			h.press("x")
+			h.fail(g, uncertainErr()) // ? on #5 (its re-read is not held, so it settles)
+			return h
+		}},
+		{"pending_markers_detail", func(t *testing.T) *harness {
+			h := newHarness(t, richFixture())
+			h.hold("UpdateLabels", 6)
+			h.press("enter", "L", "space", "j", "j", "space", "enter")
+			return h
+		}},
+		{"board_moved_card", func(t *testing.T) *harness {
+			h := newHarness(t, richFixture(), withStart(ViewBoard))
+			h.hold("SetStatus", 6)
+			h.press(">")
+			return h
+		}},
 		{"error_toast", func(t *testing.T) *harness {
 			h := newHarness(t, richFixture())
 			h.app.toastErr("Couldn't load the session: network unreachable")

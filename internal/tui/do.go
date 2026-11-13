@@ -17,6 +17,7 @@ type SlotKind int
 const (
 	SlotSession SlotKind = iota
 	SlotRecover
+	SlotForm // a form's own GetIssue (edit load, pre-check)
 	SlotCandidates
 	SlotChoose
 	SlotBoard
@@ -165,7 +166,7 @@ func (a *App) onIssuesPage(m issuesPageMsg) tea.Cmd {
 		return nil
 	}
 	for _, i := range m.page.Items {
-		a.putIssue(i, m.sent)
+		a.putIssue(i, m.sent, true)
 	}
 	target := c
 	if m.shadow {
@@ -344,10 +345,11 @@ func (a *App) onBoard(m boardMsg) tea.Cmd {
 	b.Info = &info
 	b.InfoErr = nil
 	b.Order = b.Order[:0:0]
+	b.Extra = map[int]bool{} // GitHub's order now places every card
 	for _, col := range m.board.Columns {
 		o := ColumnOrder{Status: col.Status, OptionID: col.OptionID}
 		for _, card := range col.Cards {
-			a.putIssue(card.Issue, m.sent)
+			a.putIssue(card.Issue, m.sent, true)
 			o.Numbers = append(o.Numbers, card.Number)
 		}
 		b.Order = append(b.Order, o)
@@ -430,7 +432,7 @@ func (a *App) onBoardChosen(m boardChosenMsg) tea.Cmd {
 			a.cancel(sl)
 		}
 	}
-	a.store.Board = BoardCache{}
+	a.store.Board = BoardCache{Extra: map[int]bool{}}
 	a.tabs[ViewBoard] = []Screen{newBoard()}
 	cmds := []tea.Cmd{a.loadBoard(false, ReasonInitial), a.toastOK("Using project " + line(m.project.Title))}
 	if a.store.Issues.Phase != PhaseEmpty {
@@ -486,7 +488,7 @@ func (a *App) onIssueDetail(m issueDetailMsg) tea.Cmd {
 		a.store.version++
 		return nil
 	}
-	a.putIssue(m.detail.Issue, m.sent)
+	a.putIssue(m.detail.Issue, m.sent, true)
 	if !m.sent.Before(d.BodyAsOf) {
 		d.Body = m.detail.Body
 		d.BodyAsOf = m.sent
@@ -641,9 +643,13 @@ func (a *App) copyURL(url string) tea.Cmd {
 }
 
 // putIssue sanitises the short fields of an issue and stores it under the
-// asOf rule.
-func (a *App) putIssue(i domain.Issue, asOf time.Time) {
+// asOf rule. A successful read (read=true) may release an uncertain change
+// (A5 rule 5); the resulting command runs after this Update.
+func (a *App) putIssue(i domain.Issue, asOf time.Time, read bool) {
 	a.store.Put(sanitizeIssue(i), asOf)
+	if read {
+		a.later = append(a.later, a.releaseUncertain(i.Number, asOf))
+	}
 }
 
 func sanitizeIssue(i domain.Issue) domain.Issue {

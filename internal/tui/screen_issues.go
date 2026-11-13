@@ -41,15 +41,21 @@ func (s *IssueList) Position(*Ctx) string {
 
 func (s *IssueList) Actions(*Ctx) []Action {
 	acts := []Action{ActDown, ActUp, ActTop, ActBottom, ActHalfDown, ActHalfUp}
-	if len(s.rows) > 0 {
+	has := len(s.rows) > 0
+	if has {
 		acts = append(acts, ActOpen)
 	}
 	if s.filter.String() != "" {
 		acts = append(acts, ActBack)
 	}
+	acts = append(acts, ActNew)
+	if has {
+		acts = append(acts, ActEdit, ActClose)
+	}
 	acts = append(acts, ActFilter, ActState, ActMine)
-	if len(s.rows) > 0 {
-		acts = append(acts, ActBrowser, ActCopyURL)
+	if has {
+		acts = append(acts, ActAssign, ActLabel, ActStatus, ActComment, ActCloseNotPlanned,
+			ActStatusPrev, ActStatusNext, ActDelete, ActBrowser, ActCopyURL)
 	}
 	return acts
 }
@@ -59,7 +65,7 @@ func (s *IssueList) Sync(c *Ctx) {
 	q := s.filter.String()
 	rows := s.rows[:0:0]
 	for _, n := range c.Store.Issues.Numbers {
-		if i, ok := c.Store.Issue(n); ok && matches(i, q) {
+		if i, ok := c.Issue(n); ok && matches(i, q) {
 			rows = append(rows, n)
 		}
 	}
@@ -83,7 +89,7 @@ func (s *IssueList) selected(c *Ctx) (domain.Issue, bool) {
 	if len(s.rows) == 0 {
 		return domain.Issue{}, false
 	}
-	return c.Store.Issue(s.sel)
+	return c.Issue(s.sel)
 }
 
 func (s *IssueList) Update(c *Ctx, msg tea.Msg) tea.Cmd {
@@ -131,6 +137,9 @@ func (s *IssueList) Update(c *Ctx, msg tea.Msg) tea.Cmd {
 		next := map[domain.IssueState]domain.IssueState{"open": "closed", "closed": "all", "all": "open"}
 		cache.Query.State = next[cache.Query.State]
 		return c.a.loadIssues(ReasonQueryChanged)
+	case ActNew, ActEdit, ActAssign, ActLabel, ActComment, ActClose, ActCloseNotPlanned,
+		ActStatus, ActStatusPrev, ActStatusNext, ActDelete:
+		return c.a.issueAction(c, m.A, s.sel, false, nil)
 	case ActBrowser:
 		if i, ok := s.selected(c); ok {
 			return c.a.openURL(i.URL)
@@ -186,7 +195,7 @@ func (s *IssueList) View(c *Ctx, area Rect) string {
 	}
 	cols := issueColumns(area.W)
 	for r := s.offset; r < len(s.rows) && len(lines) < area.H; r++ {
-		i, _ := c.Store.Issue(s.rows[r])
+		i, _ := c.Issue(s.rows[r])
 		lines = append(lines, issueRow(c, i, cols, s.rows[r] == s.sel, area.W))
 	}
 	return box(lines, area.W, area.H)
@@ -216,7 +225,7 @@ func issueRow(c *Ctx, i domain.Issue, cols []Placed, sel bool, w int) string {
 		var cell string
 		switch col.ID {
 		case ColState:
-			cell = gutter(t, sel) + issueGlyph(t, i)
+			cell = pendingGutter(c, i.Number, sel) + issueGlyph(t, i)
 		case ColNumber:
 			cell = t.muted().Render("#" + itoaPlain(i.Number))
 		case ColTitle:

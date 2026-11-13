@@ -5,6 +5,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -29,6 +30,9 @@ type Deps struct {
 	// Tick schedules a timer message; tea.Tick in production. Injected so no
 	// test sleeps (architecture 8). nil means tea.Tick.
 	Tick func(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd
+	// Exec runs the external editor; tea.ExecProcess in production. The test
+	// harness runs the command directly. nil means tea.ExecProcess.
+	Exec func(cmd *exec.Cmd, fn tea.ExecCallback) tea.Cmd
 }
 
 // Env is what cli read from the environment.
@@ -107,6 +111,11 @@ type App struct {
 	lastRender map[lastKey]lastOut
 	renderVer  uint64
 	clockOn    bool // a clock tick is scheduled
+
+	pending *PendingSet
+	formSeq uint64
+	writes  map[string]*formWrite // form writes in flight (create, edit, comment, delete)
+	later   []tea.Cmd             // commands produced while handling a message, run after it
 }
 
 type lastKey struct {
@@ -131,6 +140,9 @@ func New(deps Deps, opts Options) *App {
 	if deps.Tick == nil {
 		deps.Tick = tea.Tick
 	}
+	if deps.Exec == nil {
+		deps.Exec = tea.ExecProcess
+	}
 	if deps.Renderer == nil {
 		deps.Renderer = markdown.NewRenderer(markdown.Options{})
 	}
@@ -141,6 +153,8 @@ func New(deps Deps, opts Options) *App {
 		keys:       DefaultKeymap(),
 		store:      NewStore(),
 		inflight:   make(map[Slot]*Request),
+		pending:    newPendingSet(),
+		writes:     map[string]*formWrite{},
 		active:     opts.StartView,
 		rendering:  make(map[markdown.Key]bool),
 		lastRender: make(map[lastKey]lastOut),
@@ -258,18 +272,46 @@ func (c *Ctx) Pop() { c.a.pop() }
 // syncSig is what a detail screen's content depends on; Sync skips the
 // rebuild when it is unchanged.
 type syncSig struct {
-	store, render uint64
-	frame         Frame
-	dark          bool
-	spin          uint64
+	store, render, pending uint64
+	frame                  Frame
+	dark                   bool
+	spin                   uint64
 }
 
 func (c *Ctx) sig(loading bool) syncSig {
-	s := syncSig{store: c.Store.version, render: c.a.renderVer, frame: c.Frame, dark: c.Theme.Dark}
+	s := syncSig{store: c.Store.version, render: c.a.renderVer, pending: c.a.pending.version, frame: c.Frame, dark: c.Theme.Dark}
 	if loading {
 		s.spin = c.a.spin
 	}
 	return s
+}
+
+// Issue is the issue to draw: the base with every pending change replayed
+// (A5). Screens never draw the bare base.
+func (c *Ctx) Issue(n int) (domain.Issue, bool) {
+	base, ok := c.Store.Issue(n)
+	if !ok {
+		return base, false
+	}
+	eff, _ := Effective(base, c.a.pending.Changes(n), c.Store.Meta.Labels)
+	return eff, true
+}
+
+// Marks are the pending markers of an issue.
+func (c *Ctx) Marks(n int) Marks {
+	base, _ := c.Store.Issue(n)
+	_, m := Effective(base, c.a.pending.Changes(n), c.Store.Meta.Labels)
+	return m
+}
+
+// Columns is the derived board (A5): effective issues, plus every issue with
+// a pending change or placed this session.
+func (c *Ctx) Columns() []DisplayColumn {
+	extra := c.a.pending.Numbers()
+	for n := range c.Store.Board.Extra {
+		extra = append(extra, n)
+	}
+	return c.Store.Columns(c.Issue, extra)
 }
 
 // Busy reports whether a slot has a live request.
@@ -281,6 +323,12 @@ func (a *App) pop() {
 		return
 	}
 	for _, s := range st[len(st)-1].Slots() {
+		// A held queue (A5 rule 5) waits for a read of its issue: whatever
+		// read is in that slot (the re-read, or the detail's own read that
+		// replaced it) must not be cancelled (tui.md 6.3, Phase 6 review).
+		if s.Kind == SlotIssue && a.isHeld(s.Number) {
+			continue
+		}
 		a.cancel(s)
 	}
 	a.tabs[a.active] = st[:len(st)-1]
@@ -299,10 +347,21 @@ func (a *App) top(v ViewID) Screen {
 // Update handles every message (tui.md 5).
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmd := a.update(msg)
+	if len(a.later) > 0 {
+		cmd = tea.Batch(append([]tea.Cmd{cmd}, a.later...)...)
+		a.later = nil
+	}
 	c := a.ctxFor(a.theme)
 	for v := range a.tabs {
 		if s := a.top(ViewID(v)); s != nil {
 			s.Sync(c)
+		}
+	}
+	if a.fits {
+		for _, o := range a.overlays {
+			if l, ok := o.(overlayLayout); ok {
+				l.layout(c)
+			}
 		}
 	}
 	return a, tea.Batch(cmd, a.requestRenders(), a.spinCmd())
@@ -392,6 +451,15 @@ func (a *App) update(msg tea.Msg) tea.Cmd {
 		return a.onPRsPage(m)
 	case recoveredMsg:
 		return a.onRecovered(m)
+	case changeDoneMsg:
+		return a.onChangeDone(m)
+	case labelsMsg, usersMsg:
+		a.onMeta(msg)
+		return nil
+	case createDoneMsg, editDoneMsg, commentDoneMsg, deleteDoneMsg:
+		return a.onWriteResult(msg)
+	case formReadMsg, conflictChoiceMsg, editorDoneMsg, editorReadMsg:
+		return a.toOverlays(msg)
 	case boardMsg:
 		return a.onBoard(m)
 	case candidatesMsg:
@@ -442,7 +510,7 @@ func (a *App) forward(msg tea.Msg) tea.Cmd {
 	case Overlay:
 		cmd, res := t.Update(c, msg)
 		if res == Close {
-			a.overlays = a.overlays[:len(a.overlays)-1]
+			a.closeOverlay(t)
 		}
 		return cmd
 	case Screen:
@@ -456,7 +524,7 @@ func (a *App) onKey(k tea.KeyPressMsg) tea.Cmd {
 	// A key dismisses the toast; an error toast stays until the next key.
 	a.toast = nil
 	if k.String() == "ctrl+c" {
-		return tea.Quit // Phase 3 has no writes in flight to confirm
+		return a.quit(true)
 	}
 	if !a.fits {
 		if key.Matches(k, a.keys.Binding(ActQuit)) {
@@ -474,7 +542,7 @@ func (a *App) onKey(k tea.KeyPressMsg) tea.Cmd {
 		}
 	}
 	if len(a.overlays) > 0 {
-		return nil
+		return a.forward(k) // keys an overlay has no action for, e.g. a letter that starts a picker filter
 	}
 	for _, act := range []Action{ActViewIssues, ActViewPRs, ActViewBoard, ActNextView, ActPrevView, ActHelp, ActQuit, ActRefresh} {
 		if key.Matches(k, a.keys.Binding(act)) {
@@ -500,11 +568,62 @@ func (a *App) global(act Action) tea.Cmd {
 		a.overlays = append(a.overlays, newHelp(a, a.top(a.active)))
 		return nil
 	case ActQuit:
-		return tea.Quit
+		return a.quit(false)
 	case ActRefresh:
 		return a.refresh(ReasonRefresh)
 	}
 	return nil
+}
+
+// quit asks first while writes are in flight (tui.md 8.8); a second ctrl+c
+// on that question quits at once.
+func (a *App) quit(ctrlC bool) tea.Cmd {
+	if n := len(a.overlays); n > 0 {
+		if c, ok := a.overlays[n-1].(*Confirm); ok && c.quit && ctrlC {
+			return tea.Quit
+		}
+	}
+	n := a.pendingWrites()
+	if n == 0 {
+		return tea.Quit
+	}
+	what := itoaPlain(n) + " changes"
+	if n == 1 {
+		what = "1 change"
+	}
+	q := newConfirm(what+" still sending. Quit anyway?", func(*Ctx) tea.Cmd { return tea.Quit })
+	q.quit = true
+	a.pushOverlay(q)
+	return nil
+}
+
+// pushOverlay opens an overlay on top.
+func (a *App) pushOverlay(o Overlay) { a.overlays = append(a.overlays, o) }
+
+// closeOverlay closes o and everything above it.
+func (a *App) closeOverlay(o Overlay) tea.Cmd {
+	for i, x := range a.overlays {
+		if x == o {
+			a.overlays = a.overlays[:i]
+			break
+		}
+	}
+	return nil
+}
+
+// toOverlays gives a write result to every overlay; each ignores results
+// that are not its own.
+func (a *App) toOverlays(msg tea.Msg) tea.Cmd {
+	c := a.ctxFor(a.theme)
+	var cmds []tea.Cmd
+	for _, o := range append([]Overlay{}, a.overlays...) {
+		cmd, res := o.Update(c, msg)
+		cmds = append(cmds, cmd)
+		if res == Close {
+			a.closeOverlay(o)
+		}
+	}
+	return tea.Batch(cmds...)
 }
 
 // switchTo changes tab; a tab never loaded, or with data older than the
@@ -649,7 +768,7 @@ func (a *App) onAuto(m autoRefreshMsg) tea.Cmd {
 	if m.gen != a.autoGen {
 		return nil
 	}
-	next := a.scheduleAuto()
+	next := tea.Batch(a.scheduleAuto(), a.rereadHeld()) // held queues retry even when the rest is skipped
 	if a.autoSkip() {
 		return next
 	}
@@ -735,7 +854,13 @@ func (a *App) requestRenders() tea.Cmd {
 		w   int
 	}
 	var jobs []job
-	for _, req := range s.Renders(c) {
+	reqs := s.Renders(c)
+	if n := len(a.overlays); n > 0 {
+		if r, ok := a.overlays[n-1].(overlayRenders); ok {
+			reqs = append(reqs, r.Renders(c)...)
+		}
+	}
+	for _, req := range reqs {
 		k := r.Key(req.Src, req.Width, st)
 		if a.rendering[k] {
 			continue
@@ -772,9 +897,14 @@ func (a *App) View() tea.View {
 	v := tea.NewView(a.render())
 	v.AltScreen = true
 	v.WindowTitle = a.title()
-	if a.fits && len(a.overlays) == 0 {
-		if s := a.top(a.active); s != nil && s.Mode() == ModeText {
-			v.Cursor = s.Cursor(a.ctxFor(a.theme))
+	if a.fits {
+		c := a.ctxFor(a.theme)
+		if n := len(a.overlays); n > 0 {
+			if o := a.overlays[n-1]; o.Mode() == ModeText {
+				v.Cursor = o.Cursor(c)
+			}
+		} else if s := a.top(a.active); s != nil && s.Mode() == ModeText {
+			v.Cursor = s.Cursor(c)
 		}
 	}
 	return v
@@ -924,8 +1054,8 @@ func (a *App) footer(c *Ctx, s Screen) string {
 	t := c.Theme
 	w := a.frame.Footer.W
 	pos := s.Position(c)
-	if len(a.overlays) > 0 {
-		pos = ""
+	if n := len(a.overlays); n > 0 {
+		pos = a.overlays[n-1].Position(c)
 	}
 	if a.toast != nil {
 		st := t.text()
@@ -946,14 +1076,19 @@ func (a *App) hints(c *Ctx, s Screen, w int) string {
 		return " " + t.accent().Render("enter") + " " + t.muted().Render("keep filter") + "  " +
 			t.accent().Render("esc") + " " + t.muted().Render("clear filter")
 	}
-	var acts []Action
-	ctxID := s.ID()
 	if n := len(a.overlays); n > 0 {
-		acts = a.overlays[n-1].Actions(c)
-		ctxID = ScreenHelp
-	} else {
-		acts = s.Actions(c)
+		out := " "
+		for _, h := range a.overlays[n-1].Hints(c) {
+			item := t.accent().Render(h.key) + " " + t.muted().Render(h.desc)
+			if lipgloss.Width(out+item) > w {
+				break
+			}
+			out += item + "  "
+		}
+		return strings.TrimRight(out, " ")
 	}
+	acts := s.Actions(c)
+	ctxID := s.ID()
 	help := ""
 	if len(a.overlays) == 0 {
 		help = t.accent().Render("?") + " " + t.muted().Render("help")
@@ -967,6 +1102,11 @@ func (a *App) hints(c *Ctx, s Screen, w int) string {
 			continue
 		}
 		k, d := HelpText(ctxID, act, c.Keys)
+		if s, ok := footerShort[act]; ok {
+			if _, over := helpOverrides[ctxID][act]; !over {
+				d = s
+			}
+		}
 		if p, ok := footerPairs[act]; ok {
 			k, d = p[0], p[1]
 			if o, ok := helpOverrides[ctxID][act]; ok {

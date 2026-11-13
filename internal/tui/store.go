@@ -86,6 +86,10 @@ type ColumnOrder struct {
 
 // BoardCache holds the board as ordered issue numbers per status (A5).
 type BoardCache struct {
+	// Extra are issues placed on the board this session (created there, or
+	// moved or added by a settled change) that GitHub's Order may not list
+	// yet; Columns considers them. Cleared by every board load.
+	Extra                     map[int]bool
 	Info                      *domain.BoardInfo
 	InfoErr                   *domain.Error
 	Order                     []ColumnOrder
@@ -153,6 +157,7 @@ func NewStore() *Store {
 	return &Store{
 		issues:  make(map[int]*IssueEntry),
 		prs:     make(map[int]*PREntry),
+		Board:   BoardCache{Extra: map[int]bool{}},
 		Issues:  ListCache[IssueQuery]{Query: IssueQuery{State: "open"}},
 		PRs:     PRListCache{Query: PRQuery{State: "open"}},
 		details: newLRU[int, *DetailEntry](64),

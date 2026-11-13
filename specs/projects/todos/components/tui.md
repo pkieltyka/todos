@@ -38,22 +38,27 @@ could not verify are marked **UNVERIFIED**.
 
 ## 2. Package layout
 
+One flat package (as built). Subpackages for screens, overlays and the editor
+would need `Ctx` and would cycle back into `tui`.
+
 ```
 internal/tui/
-  app.go          App (root model), Run, Deps, Options
-  do.go           intents → service calls (the only file that calls Service)
-  msgs.go         every message type
-  store.go        Store, ListCache, BoardOrder, detail entries, asOf rule
-  pending.go      PendingSet, Change, Patch, Apply, Effective, scheduler
-  keys.go         Action, Keymap, DefaultKeymap, help adapter
-  layout.go       ComputeFrame, Fit, board window, side panel
-  theme.go        Theme, NewTheme, Dimmed, ParseOverride
-  toast.go        Toast, banner
-  draft.go        draftWriter, durable (quick-add draft transitions)
-  screens/        IssueList, IssueDetail, PRList, PRDetail, Board, BoardSetup
-  overlays/       IssueForm, CommentForm, Picker, DeleteConfirm, Confirm,
-                  Conflict, QuickAdd, Help
-  editor/         editor.Model (textarea + preview + $EDITOR)
+  app.go            App (root model), Run, Deps, Options, Ctx, dispatch, frame
+  do.go             reads: slots, Cmd wrappers, every load and its handler
+  changes.go        the pending-change engine's App side: send, settle, release
+  pending.go        PendingSet, Change, Patch, Apply, Effective (pure)
+  actions.go        per-issue actions, picker openers, status choices, create/delete
+  msgs.go           read message types
+  store.go          Store, ListCache, BoardCache, detail entries, asOf rule, Columns
+  keys.go           Action, Keymap, DefaultKeymap, footer and help texts
+  layout.go         ComputeFrame, Fit, BoardWindow, reselect
+  theme.go          Theme, NewTheme, Dimmed, ParseOverride
+  format.go         times, counts, error texts and hints
+  widgets.go        filter input, glyphs, label and people cells, pending markers
+  editor.go         Editor: textarea + preview + $EDITOR hand-off (14)
+  screen.go         Screen and Overlay interfaces
+  screen_*.go       IssueList, IssueDetail, PRList, PRDetail, Board, BoardSetup
+  overlay_*.go      Help, Picker, IssueForm, CommentForm, Confirm, Conflict, DeleteConfirm
 ```
 
 `tui` imports `domain`, `service` and `markdown` (A2). Tests also import
@@ -73,6 +78,8 @@ type Deps struct {
     Clock    func() time.Time        // time.Now; fixed in tests
     Open     func(url string) error  // go-gh pkg/browser; fake in tests
     Env      Env
+    Tick     func(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd // tea.Tick; recorded by the harness
+    Exec     func(cmd *exec.Cmd, fn tea.ExecCallback) tea.Cmd       // tea.ExecProcess; run directly by the harness
 }
 
 type Env struct {
@@ -235,13 +242,22 @@ becomes available again, it is replaced by `[Board]`.
 
 ```go
 type Overlay interface {
-    Update(c *Ctx, msg tea.Msg) (Overlay, tea.Cmd, OverlayResult)
+    // Update gets ActionMsg for its actions, raw keys otherwise (and always
+    // in text mode), and every write result, which it ignores unless it is
+    // its own (results are given to every open overlay).
+    Update(c *Ctx, msg tea.Msg) (tea.Cmd, OverlayResult)
     View(c *Ctx, body Rect) (content string, box Rect)
     Actions(c *Ctx) []Action
+    Hints(c *Ctx) []hint           // its footer
+    Position(c *Ctx) string        // footer right side, e.g. "L4:C19"
     Mode() InputMode
-    Cursor(c *Ctx) *tea.Cursor     // real cursor in text mode, else nil
+    Cursor(c *Ctx) *tea.Cursor     // real cursor in text mode, in frame coordinates
     Busy() bool                    // its own request is in flight
 }
+
+// Optional: overlays with an editor implement layout(c), called after every
+// Update so the editor is sized before its first draw, and Renders(c) for the
+// preview.
 
 type OverlayResult int
 const ( Keep OverlayResult = iota; Close )
@@ -975,6 +991,42 @@ These are not in the log.
 
 ---
 
+### 8.11 As built (Phase 6)
+
+- **Drawing.** Screens never draw the bare base: `Ctx.Issue(n)` is
+  `Effective(base, changes)`, `Ctx.Marks(n)` its markers, and
+  `Ctx.Columns()` the derived board. Lists and cards show `⠋` (busy) or `?`
+  (uncertain) in the gutter. The detail shows `⠋+name` for pending additions,
+  struck-through removals, and a spinner beside a pending state or board
+  status (UI 5.2).
+- **Issues placed this session.** `BoardCache.Extra` holds issues created on
+  the board or moved by a settled change. GitHub's order does not list them
+  until the next board load, so `Columns` considers them too. Every board load
+  clears it.
+- **The edit form's reads** (loading the body to edit, and the pre-check) use
+  their own slot, `SlotForm`. They never cancel the detail screen's reads of
+  the same issue, nor are cancelled by them.
+- **Results reach overlays.** Create, edit, comment, delete, form-read and
+  editor messages are given to every open overlay; each checks its own ID.
+- **The assignee picker** lists `@me (login)` first, then the assignable
+  users. In navigation mode, any letter other than `j`, `k` and space starts
+  the filter (the App forwards keys an overlay has no action for).
+- **Form writes** (create, edit, comment, delete) are registered while in
+  flight and count as writes for the quit question. A result whose overlay
+  was closed meanwhile (a create can be abandoned with `esc` → `y`) is handled
+  by the App: the store is updated and a toast says what happened, so a
+  result is never lost (Phase 6 review).
+- **A held queue's read survives navigation.** Popping a detail never
+  cancels the `Issue` slot of an issue whose queue is held. Opening the
+  detail replaces the re-read with the detail's own read, which is sent after
+  the failure and releases the hold when it lands (Phase 6 review, 6.3).
+- **Quit.** `q`, or a first `ctrl+c`, with changes pending or a form write in flight
+  opens `N changes still sending. Quit anyway?`. A second `ctrl+c` on that
+  question quits at once.
+- **Footer** descriptions are the short forms of the mocks (`n new  e edit
+  x close  </> move`). The help screen keeps the long ones and sizes each
+  group's key column to its widest key.
+
 ## 9. Keymap
 
 ### 9.1 One source
@@ -1479,52 +1531,35 @@ On `qaDoneMsg{res, err, d}`, `Update` adopts `d` and turns the saver back on.
 
 ---
 
-## 14. The editor (`tui/editor`)
+## 14. The editor (`editor.go`, in package `tui`)
 
 ### 14.1 Model
 
 ```go
-package editor
-
-type Mode int
-const ( Write Mode = iota; Preview )
-
-type Options struct {
-    Owner       OwnerID
-    Placeholder string
-    External    []string                                      // argv from Env.Editor; nil = not offered
-    Render      func(src string, width int) (markdown.Key, tea.Cmd)
-    Cached      func(markdown.Key) (string, bool)
+type Editor struct {
+    ta      textarea.Model     // ShowLineNumbers off, MaxHeight 0, CharLimit 0, no blink, real cursor
+    preview bool
+    vp      viewport.Model
+    owner   uint64             // the form's ID, for routing editor messages
+    ext     []string           // argv from Env.Editor; nil = not offered
+    w, h    int
 }
 
-type Model struct {
-    ta       textarea.Model
-    mode     Mode
-    vp       viewport.Model
-    preview  markdown.Key
-    opts     Options
-}
-
-func New(o Options) Model
-func (m *Model) SetSize(w, h int)
-func (m Model) Value() string
-func (m *Model) SetValue(s string)
-func (m Model) Update(msg tea.Msg) (Model, tea.Cmd)
-func (m Model) View() string
-func (m Model) Cursor() *tea.Cursor
-func (m Model) LineCol() (line, col int)     // footer "L4:C19"
+func newEditor(owner uint64, ext []string, placeholder string) Editor
+func (e *Editor) SetSize(w, h int)
+func (e *Editor) Value() string
+func (e *Editor) SetValue(s string)
+func (e *Editor) Update(c *Ctx, msg tea.Msg) (tea.Cmd, bool)   // ctrl+r, ctrl+o, keys, paste, editor results
+func (e *Editor) View(c *Ctx) string                          // textarea, or the preview via Ctx.Markdown
+func (e *Editor) Renders() []renderReq                        // the preview's render, when open
+func (e *Editor) Cursor() *tea.Cursor                          // relative; the form offsets it
+func (e *Editor) LineCol() (int, int)                          // footer "L4:C19"
 ```
 
-The textarea is configured with:
-
-- `ShowLineNumbers = false`
-- `MaxHeight = 0` (no limit; the default 99 would cap bodies)
-- `CharLimit = 0`
-- `SetVirtualCursor(false)`
-
-Its default keymap is kept. The editor intercepts `ctrl+r` and `ctrl+o`
-first. `ctrl+s`, `ctrl+x`, `esc` and `tab` are handled by the owning overlay
-before the editor sees them.
+The textarea's cursor blink is turned off: with a real cursor there is
+nothing to blink, and a blink timer would be a hidden `tea.Tick` that no test
+could drive. The external editor runs through `Deps.Exec` (default
+`tea.ExecProcess`), which the harness replaces with a direct `cmd.Run`.
 
 ### 14.2 Preview toggle (4.8)
 

@@ -63,10 +63,14 @@ func (s *Board) Actions(c *Ctx) []Action {
 	acts := []Action{ActLeft, ActRight, ActDown, ActUp, ActTop, ActBottom, ActHalfDown, ActHalfUp}
 	has := s.focused() != nil && len(s.focused().Numbers) > 0
 	if has {
-		acts = append(acts, ActOpen)
+		acts = append(acts, ActStatusPrev, ActStatusNext, ActOpen)
 	}
 	if s.filter.String() != "" {
 		acts = append(acts, ActBack)
+	}
+	acts = append(acts, ActNew)
+	if has {
+		acts = append(acts, ActEdit, ActClose, ActAssign, ActLabel, ActStatus, ActComment, ActCloseNotPlanned, ActDelete)
 	}
 	acts = append(acts, ActFilter, ActMine)
 	if has {
@@ -88,14 +92,14 @@ func (s *Board) cardsVisible(c *Ctx) int {
 }
 
 func (s *Board) Sync(c *Ctx) {
-	all := c.Store.Columns(c.Store.Issue, nil)
+	all := c.Columns()
 	q := s.filter.String()
 	s.total = 0
 	for i := range all {
 		s.total += len(all[i].Numbers)
 		var keep []int
 		for _, n := range all[i].Numbers {
-			is, ok := c.Store.Issue(n)
+			is, ok := c.Issue(n)
 			if !ok || !matches(is, q) {
 				continue
 			}
@@ -196,11 +200,22 @@ func (s *Board) Update(c *Ctx, msg tea.Msg) tea.Cmd {
 	case ActMine:
 		s.mine = !s.mine
 	case ActBrowser, ActCopyURL:
-		if i, ok := c.Store.Issue(s.sel); ok {
+		if i, ok := c.Issue(s.sel); ok {
 			if m.A == ActBrowser {
 				return c.a.openURL(i.URL)
 			}
 			return c.a.copyURL(i.URL)
+		}
+	case ActNew:
+		var st *string
+		if f != nil {
+			st = f.Status
+		}
+		return c.a.issueAction(c, m.A, 0, true, st) // the Board view always adds to the board (A4)
+	case ActEdit, ActAssign, ActLabel, ActComment, ActClose, ActCloseNotPlanned,
+		ActStatus, ActStatusPrev, ActStatusNext, ActDelete:
+		if f != nil && len(f.Numbers) > 0 {
+			return c.a.issueAction(c, m.A, s.sel, false, nil)
 		}
 	case ActChooseProject:
 		ch := newBoardSetup(SetupChoosing, nil)
@@ -317,10 +332,13 @@ func (s *Board) column(c *Ctx, col DisplayColumn, focused bool, w, h int) []stri
 	var body []string
 	for k := off; k < len(col.Numbers) && k < off+vis; k++ {
 		n := col.Numbers[k]
-		i, _ := c.Store.Issue(n)
+		i, _ := c.Issue(n)
 		sel := focused && n == s.sel
 		for li, l := range cardLines(t, i, cw) {
-			g := gutter(t, sel && li == 0)
+			g := " "
+			if li == 0 {
+				g = pendingGutter(c, n, sel)
+			}
 			cell := g + fit(l, cw) + " "
 			if sel {
 				cell = t.selected(cell)

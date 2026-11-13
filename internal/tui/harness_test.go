@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os/exec"
 	"reflect"
 	"strings"
 	"sync"
@@ -46,6 +47,9 @@ type harnessOpt func(*harness, *Deps, *Options)
 
 func withStart(v ViewID) harnessOpt { return func(_ *harness, _ *Deps, o *Options) { o.StartView = v } }
 func withTheme(s string) harnessOpt { return func(_ *harness, d *Deps, _ *Options) { d.Env.Theme = s } }
+func withEditor(argv ...string) harnessOpt {
+	return func(_ *harness, d *Deps, _ *Options) { d.Env.Editor = argv }
+}
 
 // withLazy builds the App without starting it, so gates can be registered
 // before Init; call boot.
@@ -60,6 +64,11 @@ func newHarness(t *testing.T, fx servicetest.Fixture, opts ...harnessOpt) *harne
 		Clock:    func() time.Time { h.mu.Lock(); defer h.mu.Unlock(); return h.now },
 		Open:     func(u string) error { h.mu.Lock(); defer h.mu.Unlock(); h.opened = append(h.opened, u); return nil },
 		Env:      Env{Theme: "dark"},
+		// The external editor runs directly; tea.ExecProcess only works
+		// inside a real program.
+		Exec: func(cmd *exec.Cmd, fn tea.ExecCallback) tea.Cmd {
+			return func() tea.Msg { return fn(cmd.Run()) }
+		},
 		Tick: func(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd {
 			return func() tea.Msg {
 				h.mu.Lock()
@@ -166,6 +175,9 @@ func keyMsg(k string) tea.KeyPressMsg {
 	}
 	if k2, ok := named[k]; ok {
 		return tea.KeyPressMsg(k2)
+	}
+	if strings.HasPrefix(k, "ctrl+") && len(k) == 6 {
+		return tea.KeyPressMsg(tea.Key{Code: rune(k[5]), Mod: tea.ModCtrl})
 	}
 	r := []rune(k)[0]
 	return tea.KeyPressMsg(tea.Key{Code: r, Text: k})

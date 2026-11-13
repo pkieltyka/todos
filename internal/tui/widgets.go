@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -287,4 +288,39 @@ func listNav(a Action, i, n, page int) int {
 		i -= max(1, page/2)
 	}
 	return clamp(i, 0, max(0, n-1))
+}
+
+// pendingGutter is the one-cell gutter of a row or card: a spinner while a
+// change on the issue is pending, "?" while one is uncertain, else the
+// selection bar (UI 5.2).
+func pendingGutter(c *Ctx, n int, sel bool) string {
+	m := c.Marks(n)
+	switch {
+	case m.Uncertain:
+		return c.Theme.pending().Render("?")
+	case m.Busy:
+		return c.Theme.pending().Render(c.Spin)
+	}
+	return gutter(c.Theme, sel)
+}
+
+// pendingNames draws names with pending additions ("⠋+docs", pending colour)
+// and pending removals (struck through) (UI 5.2). render draws one settled name.
+func pendingNames(c *Ctx, names, added, removed []string, render func(string) string, sep string) string {
+	t := c.Theme
+	var parts []string
+	for _, n := range names {
+		if slices.Contains(added, n) {
+			parts = append(parts, t.pending().Italic(true).Render(c.Spin+"+"+n))
+			continue
+		}
+		parts = append(parts, render(n))
+	}
+	for _, n := range removed {
+		parts = append(parts, t.pending().Strikethrough(true).Render(n))
+	}
+	if len(parts) == 0 {
+		return t.muted().Render("—")
+	}
+	return strings.Join(parts, sep)
 }

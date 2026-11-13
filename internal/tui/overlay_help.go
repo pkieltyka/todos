@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // Help lists every key enabled in the context it was opened from, grouped
@@ -31,6 +32,8 @@ func (h *Help) Mode() InputMode         { return ModeNav }
 func (h *Help) Cursor(*Ctx) *tea.Cursor { return nil }
 func (h *Help) Busy() bool              { return false }
 func (h *Help) Actions(*Ctx) []Action   { return []Action{ActBack, ActDown, ActUp, ActHelp} }
+func (h *Help) Hints(*Ctx) []hint       { return []hint{{"esc", "close"}, {"j/k", "scroll"}} }
+func (h *Help) Position(*Ctx) string    { return "" }
 
 func (h *Help) Update(c *Ctx, msg tea.Msg) (tea.Cmd, OverlayResult) {
 	m, ok := msg.(ActionMsg)
@@ -63,7 +66,7 @@ func (h *Help) groups(c *Ctx) [][]string {
 	var cols [][]string
 	for _, gi := range order {
 		g := helpGroups[gi]
-		var rows []string
+		var keys, descs []string
 		for _, act := range g.Actions {
 			if !h.enabled[act] {
 				continue
@@ -72,7 +75,15 @@ func (h *Help) groups(c *Ctx) [][]string {
 			if p, ok := helpPairs[act]; ok {
 				k, d = p[0], p[1]
 			}
-			rows = append(rows, t.accent().Render(fit(k, 9))+" "+t.text().Render(d))
+			keys, descs = append(keys, k), append(descs, d)
+		}
+		kw := 0 // the key column is as wide as this group's widest key
+		for _, k := range keys {
+			kw = max(kw, lipgloss.Width(k))
+		}
+		var rows []string
+		for i := range keys {
+			rows = append(rows, t.accent().Render(fit(keys[i], kw))+"  "+t.text().Render(descs[i]))
 		}
 		if len(rows) == 0 {
 			continue

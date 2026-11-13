@@ -91,7 +91,11 @@ func TestHelp_listsEveryEnabledAction(t *testing.T) {
 		"s", "state", "only mine", "open in browser", "copy URL", "refresh", "quit"} {
 		h.contains(want)
 	}
-	h.lacks("Issue actions") // nothing in that group is enabled before Phase 6
+	for _, want := range []string{"Issue actions", "new issue", "edit title/body", "assignees", "labels", "comment",
+		"close / reopen", "close as not planned", "board status", "move on board", "delete"} {
+		h.contains(want) // Phase 6: the issue actions are listed
+	}
+	h.lacks("quick add") // Phase 8
 	h.press("esc")
 	h.lacks("Help ·")
 	// On the board, its own keys are listed.

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/viewport"
@@ -196,7 +197,9 @@ func (s *IssueDetail) Position(*Ctx) string        { return s.position() }
 func (s *IssueDetail) SubBar(c *Ctx, w int) string { return detailSub(c, "‹ "+s.from, s.head, w) }
 func (s *IssueDetail) Title(*Ctx) string           { return "#" + itoaPlain(s.number) }
 func (s *IssueDetail) Actions(*Ctx) []Action {
-	return append(append([]Action{}, scrollActions...), ActBack, ActBrowser, ActCopyURL)
+	acts := append(append([]Action{}, scrollActions...), ActEdit, ActComment, ActAssign, ActLabel, ActClose, ActBack,
+		ActNew, ActCloseNotPlanned, ActStatus, ActStatusPrev, ActStatusNext, ActDelete, ActBrowser, ActCopyURL)
+	return acts
 }
 func (s *IssueDetail) Slots() []Slot {
 	return []Slot{{Kind: SlotIssue, Number: s.number}, {Kind: SlotIssueComments, Number: s.number}}
@@ -207,8 +210,11 @@ func (s *IssueDetail) Update(c *Ctx, msg tea.Msg) tea.Cmd {
 	if !ok {
 		return nil
 	}
-	i, _ := c.Store.Issue(s.number)
+	i, _ := c.Issue(s.number)
 	switch m.A {
+	case ActNew, ActEdit, ActAssign, ActLabel, ActComment, ActClose, ActCloseNotPlanned,
+		ActStatus, ActStatusPrev, ActStatusNext, ActDelete:
+		return c.a.issueAction(c, m.A, s.number, false, nil)
 	case ActBack:
 		c.Pop()
 	case ActBrowser:
@@ -239,24 +245,40 @@ func (s *IssueDetail) Sync(c *Ctx) {
 	t := c.Theme
 	area := c.Frame.Body
 	wide, cw := detailLayout(area)
-	i, _ := c.Store.Issue(s.number)
+	i, _ := c.Issue(s.number)
 	d, _ := c.Store.PeekDetail(s.number)
-	if s.fresh(c.sig(d == nil || !d.Loaded || d.CommentsPhase != PhaseComplete)) {
+	mk := c.Marks(s.number)
+	if s.fresh(c.sig(d == nil || !d.Loaded || d.CommentsPhase != PhaseComplete || mk.Busy)) {
 		return
 	}
 
-	labels := labelDots(t, i.Labels)
+	// Pending changes show inline (UI 5.2): additions as "⠋+name" in the
+	// pending colour, removals struck through, a spinner on a pending state
+	// or board status.
+	labelColor := map[string]string{}
+	for _, l := range i.Labels {
+		labelColor[l.Name] = l.Color
+	}
+	labels := pendingNames(c, nameList(i.Labels), mk.AddedLabels, mk.RemovedLabels, func(n string) string {
+		return t.fg(LabelColor(t, labelColor[n])).Render("●") + " " + t.text().Render(n)
+	}, "  ")
 	board := t.muted().Render("—")
 	if i.Board != nil {
 		board = t.text().Render(statusName(i.Board.Status))
+	}
+	if mk.Board {
+		board += " " + t.pending().Render(c.Spin)
 	}
 	milestone := t.muted().Render("—")
 	if i.Milestone != nil {
 		milestone = t.text().Render(*i.Milestone)
 	}
-	assignees := t.muted().Render("—")
-	if len(i.Assignees) > 0 {
-		assignees = t.text().Render("@" + strings.Join(i.Assignees, " @"))
+	assignees := pendingNames(c, i.Assignees, mk.AddedPeople, mk.RemovedPeople, func(n string) string {
+		return t.text().Render("@" + n)
+	}, " ")
+	state := issueStateShort(t, i)
+	if mk.State {
+		state += " " + t.pending().Render(c.Spin)
 	}
 	comments := itoa(i.CommentCount) + " comment"
 	if i.CommentCount != 1 {
@@ -287,18 +309,29 @@ func (s *IssueDetail) Sync(c *Ctx) {
 			panelRow(t, "Author", t.text().Render(author(i.Author))),
 			panelRow(t, "Opened", t.text().Render(agoLong(c.Now, i.CreatedAt))),
 			panelRow(t, "Updated", t.text().Render(agoLong(c.Now, i.UpdatedAt))),
-			panelRow(t, "State", issueStateShort(t, i)),
+			panelRow(t, "State", state),
 			panelRow(t, "Assignees", assignees),
 		}
-		for k, l := range i.Labels {
+		var rows []string
+		for _, l := range i.Labels {
+			if slices.Contains(mk.AddedLabels, l.Name) {
+				rows = append(rows, t.pending().Italic(true).Render(c.Spin+"+"+l.Name))
+			} else {
+				rows = append(rows, t.fg(LabelColor(t, l.Color)).Render("●")+" "+t.text().Render(l.Name))
+			}
+		}
+		for _, n := range mk.RemovedLabels {
+			rows = append(rows, t.pending().Strikethrough(true).Render(n))
+		}
+		if len(rows) == 0 {
+			rows = []string{t.muted().Render("—")}
+		}
+		for k, r := range rows {
 			name := "Labels"
 			if k > 0 {
 				name = ""
 			}
-			s.panel = append(s.panel, panelRow(t, name, t.fg(LabelColor(t, l.Color)).Render("●")+" "+t.text().Render(l.Name)))
-		}
-		if len(i.Labels) == 0 {
-			s.panel = append(s.panel, panelRow(t, "Labels", t.muted().Render("—")))
+			s.panel = append(s.panel, panelRow(t, name, r))
 		}
 		s.panel = append(s.panel,
 			panelRow(t, "Board", board),
@@ -473,7 +506,7 @@ func detailSub(c *Ctx, back string, _ []string, w int) string {
 	var num, title, state string
 	switch s := c.a.top(c.a.active).(type) {
 	case *IssueDetail:
-		i, _ := c.Store.Issue(s.number)
+		i, _ := c.Issue(s.number)
 		num, title, state = "#"+itoaPlain(s.number), i.Title, issueStateWord(t, i)
 	case *PRDetail:
 		p, _ := c.Store.PR(s.number)

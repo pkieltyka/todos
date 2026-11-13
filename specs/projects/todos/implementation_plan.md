@@ -45,7 +45,7 @@ diff, the developer fixes what is found, @cto reviews and commits. @pm updates
   reopen, delete, board add / move / remove including archived cards, and
   `partial` results. CLI write commands. Also the pure `quickadd` parser and
   the fake's quick-add methods, so Phase 8 can start on time.
-- [ ] **Phase 6: Changes, TUI** (TUI; parallel with Phase 5). The
+- [x] **Phase 6: Changes, TUI** (TUI; parallel with Phase 5). The
   pending-change engine. Pickers. Create, edit and comment forms with the
   editor, preview and external-editor hand-off. Edit conflict check. Delete
   confirm. Toasts.
