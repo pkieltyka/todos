@@ -4,18 +4,24 @@ Owner of this file: @pm. Only @pm edits it; ask @pm to add or change items.
 
 ## Now
 
-- [x] Spec step 1: project overview — @cto — done, approved by Peter
-- [x] Spec step 2: functional spec — @cto — done, approved by Peter
-- [x] Peter to grant the gh token the project scope: `gh auth refresh -s project` — Peter — done (gh had only gist, read:org, repo, workflow before)
-- [x] Decide how todos reaches GitHub: gh binary vs in-process GitHub API via go-gh with gh credentials — Peter — done; in-process go-gh chosen, see Decisions and facts
-- [x] Spec step 3: UI design — @cto with @frontend-dev — done, approved by Peter
-- [ ] Spec step 4: architecture — @cto — `specs/projects/todos/architecture.md` written with rulings on both proposals; @lead-dev writing component docs `domain.md`, `github.md`, `service.md`, `cli.md` and @frontend-dev writing `tui.md`, `markdown.md`, all under `specs/projects/todos/components/`; then @cto reviews them and writes the implementation plan
-- [x] Contradiction check of the three approved spec documents — @reviewer — done; ten findings, all fixed in the specs
+@reviewer is cross-checking the component docs against the architecture.
 
-## Next
+- [ ] Phase 1: Foundation — @lead-dev — in progress
+- [ ] Phase 2: Read path, core — @lead-dev — not started (parallel with Phase 3)
+- [ ] Phase 3: Read-only TUI — @frontend-dev — standing by; starts when @lead-dev signals that go.mod, domain and the fake compile
+- [ ] Phase 4: First dogfood — @lead-dev + @frontend-dev — not started
+- [ ] Phase 5: Changes, core — @lead-dev — not started (parallel with Phase 6)
+- [ ] Phase 6: Changes, TUI — @frontend-dev — not started
+- [ ] Phase 7: Quick add, core — @lead-dev — not started (parallel with Phase 8)
+- [ ] Phase 8: Quick add, TUI — @frontend-dev — not started
+- [ ] Phase 9: Skill and release readiness — @lead-dev + @frontend-dev — not started
 
-- [ ] Spec step 6: implementation plan — @cto
-- [ ] Implementation — @lead-dev (Go core) and @frontend-dev (TUI), review by @reviewer
+## Done
+
+- [x] Spec steps 1–4 + implementation plan — @cto — overview, functional spec, UI design, architecture with six component docs, implementation plan: all approved and committed on branch `todos-v1` as `fee30a2`
+- [x] Contradiction check of the approved spec documents — @reviewer — ten findings, all fixed in the specs
+- [x] Peter granted the gh token the project scope (`gh auth refresh -s project`)
+- [x] Decided how todos reaches GitHub — in-process GitHub API via go-gh with gh credentials
 
 ## Decisions and facts
 
@@ -23,6 +29,10 @@ Owner of this file: @pm. Only @pm edits it; ask @pm to add or change items.
 - gh version: 2.103.3.
 - UI libraries: `charm.land/bubbletea/v2` v2.1.1, `charm.land/lipgloss/v2` v2.1.0, `charm.land/bubbles/v2` v2.2.1.
 - @cto is the only one who commits.
+- Peter asked that the team does not ask him questions; @cto decides and reports.
+- Work happens on branch `todos-v1`; nothing is pushed.
+- Each phase: developer, `make check`, @reviewer, fixes, @cto review and commit.
+- The shared test fake is a direct in-memory implementation in `internal/service/servicetest`.
 - Decisions from Peter:
   - One repo and one board per run.
   - The board shows issue cards only and moves them between Status columns.

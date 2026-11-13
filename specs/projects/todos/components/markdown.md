@@ -280,7 +280,7 @@ piped.
 
 | Output | Call |
 |---|---|
-| Terminal | `Render(body, termWidth-2, style)`. `style` comes from `TODOS_THEME` if set, else `lipgloss.HasDarkBackground(os.Stdin, os.Stdout)` (lipgloss v2.1.0, *read*). With `NO_COLOR`, `Plain` |
+| Terminal | `Render(body, termWidth-2, style)`. `style` is `Plain` when colour is off, `Light` when `TODOS_THEME=light`, otherwise `Dark` (`cli.md`). The CLI never queries the terminal background |
 | Piped / redirected | `SanitizeBody(body)` printed as is. Raw Markdown, still free of control characters |
 | `--json` | No call. JSON escapes control characters itself, and agents get GitHub's exact text |
 
@@ -347,7 +347,7 @@ These rows of A10, unchanged:
 - `charm.land/glamour/v2` v2.0.2-0.20261015065741-010543cac1a0
 - `github.com/charmbracelet/x/ansi` v0.11.9
 
-Used indirectly through glamour, at the versions glamour requires, with no
-pins of our own: `github.com/yuin/goldmark` (the `<img>` pre-pass parses with
-it) and `golang.org/x/net/html` (the attribute tokenizer). `lipgloss` is used
-only by `cli` for `HasDarkBackground`. `markdown` itself does not import it.
+Also imported directly, at the versions pinned in `go.mod`:
+`github.com/yuin/goldmark` (the `<img>` pre-pass parses with it) and
+`golang.org/x/net/html` (the attribute tokenizer). `markdown` does not import
+`lipgloss`.

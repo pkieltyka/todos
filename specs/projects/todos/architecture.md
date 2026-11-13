@@ -33,7 +33,9 @@ component doc is wrong. References like (4.4) point to the functional spec and
 4. **Errors are data.** One error type with a kind. Every layer returns it
    unchanged; only the two faces turn it into words, exit codes and hints.
 5. **Untrusted text is sanitised at the edge.** Everything read from GitHub
-   passes through `markdown`'s sanitiser before it can reach a terminal.
+   passes through `markdown`'s sanitiser before it is written as text, whether
+   to a terminal or to a pipe, since piped output is usually read in a pager.
+   JSON output is the exception: `encoding/json` escapes control characters.
 6. **No test needs the network.**
 7. **Prefer the boring mechanism.** When a simple rule covers the cases this
    product actually has, it beats a general one. Section 9 lists where that
@@ -70,7 +72,7 @@ Import rules, enforced by a test that inspects imports
 | `markdown` | nothing |
 | `github` | `domain` |
 | `service` | `domain`, `quickadd` |
-| `service/servicetest` | `domain`, `service` |
+| `service/servicetest` | `domain`, `service`, `quickadd` (from Phase 5, for the fake's quick-add planning) |
 | `tui` | `domain`, `service`, `markdown` |
 | `cli` | everything above |
 
@@ -316,7 +318,7 @@ exactly those of (6.5).
 
 | Package | How it is tested |
 |---|---|
-| `domain` | Unit tests for the error type and JSON conventions. |
+| `domain` | Unit tests for the error type. Domain types are never serialised; JSON shapes and conventions are tested in `cli`. |
 | `quickadd` | Table tests and a fuzz test for the parser. |
 | `github` | Fake `http.RoundTripper` with fixture request/response pairs: every document, paging, mapping, and the whole error-classification table. |
 | `service` | Fake `Backend` and fake `SettingsStore`: resolution, validation, no-ops, every multi-step change and its partial outcome, quick add with an injected clock so nothing sleeps. |

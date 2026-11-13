@@ -200,14 +200,23 @@ type Screen interface {
 | Error | State |
 |---|---|
 | kind `missing_scope` | MissingScope |
-| `no_board`, `Candidates` empty | NoBoard |
-| `no_board`, more than one usable candidate | Several |
-| `no_board`, one candidate with `Usable == false` | NoStatusField |
+| `no_board`, no `Candidates` | NoBoard (no board linked) |
+| `no_board`, exactly one candidate | NoStatusField (that project has no usable Status field) |
+| `no_board`, more than one candidate | Several (projects to pick from) |
 | any other kind | Failed (message and hint) |
 
-Confirmed by @lead-dev and stated in `domain.md` and `service.md`. A
-candidate with `Usable == false` is the selected project with a missing or
-wrongly typed Status field.
+The state is chosen by **counting** `Error.Candidates`, not by inspecting
+`Usable` (`domain.md`, `service.md`).
+
+Keys in BoardSetup:
+
+| State | `P` choose project | `enter` | `r` |
+|---|---|---|---|
+| NoBoard | ✓ opens Picker(Project) from `BoardCandidates` (UI 3.16) | | ✓ |
+| NoStatusField | ✓ opens Picker(Project) (UI 3.16) | | ✓ |
+| Several | | ✓ use the highlighted project (`ChooseBoard`) | ✓ |
+| MissingScope | | | ✓ |
+| Failed | | | ✓ |
 
 **Navigation stack.** Each tab has its own stack. `enter` pushes a detail
 screen. `esc` pops it and cancels its `Slots()`, and never quits. Opening an
@@ -400,8 +409,9 @@ func write[T any](parent context.Context, clock func() time.Time,
 
 - `sent` is taken inside the Cmd, right before the call. That is the moment
   the request leaves, which is what A5 rule 7 means by "sent".
-- The service applies the 30 second timeout (A6). The TUI adds only
-  cancellation.
+- The 30 second timeout is applied by the `github` backend (A6), not by the
+  service or the TUI. The TUI adds only cancellation. The fake never times
+  out by itself; tests stage timeouts with gates.
 - Errors are unpacked with `errors.As(err, &de)` into `*domain.Error`. A
   result whose error satisfies `errors.Is(err, context.Canceled)` from a
   request we cancelled is dropped silently (A6). Any other error that is not a
@@ -1209,7 +1219,7 @@ The drawings are in UI 3. This section covers the logic behind them.
 | IssueDetail | One viewport holds the body plus every comment, each rendered separately (`markdown.Key` per body and per comment). `anchors` are recomputed after every render, for `]`/`[`. On open it sends `LoadIssue{Open}`, and if the entry is less than 60 s old it shows it at once. |
 | PRList, PRDetail | Read-only. `m` toggles the local author filter. `Closes` is plain text (UI 9 #9). |
 | Board | Columns from `Store.Columns` (7.5). `<`/`>` use `Info.Options` order. They do nothing on an issue with no effective placement (toast, UI 4). `n` and `A` pass the focused column, with `AddToBoard: true` (8.9, 12.1). `i` shows the hidden-items toast. `P` opens Picker(Project) from `BoardCandidates`. |
-| BoardSetup | NoBoard, MissingScope and NoStatusField show UI 3.16 text with the hint from the error. Several shows the list from `de.Candidates` (A6), and `enter` sends `ChooseBoard`. `r` sends `LoadBoardInfo{Refresh: true}`. |
+| BoardSetup | NoBoard, MissingScope and NoStatusField show UI 3.16 text with the hint from the error. In NoBoard and NoStatusField, `P` opens Picker(Project) from `BoardCandidates` (UI 3.16). Several shows the list from `de.Candidates` (A6), and `enter` sends `ChooseBoard`. `r` sends `LoadBoardInfo{Refresh: true}` in every state (4.2 table). |
 
 The status picker (`M`) lists, in this order:
 
@@ -1291,8 +1301,8 @@ type draftJob struct {
   and `close` and re-plans. A `planMsg` with an old `seq` is dropped.
 - Rows come from `plan.Items`. The header counts open items and done items
   separately (5.5). Each done row shows `skipped: done` or `create, then
-  close`. The note `done items are not added to the board` shows when a status
-  is set (UI 3.10).
+  close`. The note `done items are not added to the board` is always shown
+  (UI 3.10, 5.5).
 - `plan.Problems` (each with a line number) replace the create hint, and
   `enter` does nothing while there are any. A `PlanQuickAdd` error (auth,
   network) shows the same way, and `ctrl+s` retries.
@@ -1607,7 +1617,7 @@ which is authoritative.
 | `Fake.SetRateLimit(domain.RateLimit)` | auto-refresh pause (7.7) |
 | `Fake.Calls() []Call` with method, number, arguments (add, remove, status, filter, cursor), and start and end sequence numbers | "one in flight per issue", "at most four", "held queue sends nothing" |
 | Fixture variants: a board with a non-empty "No status" column, `HiddenCount > 0` and `Truncated`; `BoardInfo` failing `no_board` with several `Candidates`, `no_board` with none, `missing_scope`, and no Status field; a generator for more than 500 issues (for example 1,204) | board states, truncation |
-| `RunQuickAdd` in the fake calls `OnProgress` for creating, closing, placing and settled, honours `StopRequested` between items, stops when `OnProgress` returns an error, gates per item, and never sleeps | quick-add tests |
+| The fake's quick-add methods (Phase 5) simulate the progress phases simply: `OnProgress` for creating, closing, placing and settled, `StopRequested` honoured between items, a stop when `OnProgress` returns an error, a gate per item, and no sleeping. They are the fake's own simple simulation, not the real executor | quick-add tests (Phase 8) |
 
 ---
 
@@ -1696,6 +1706,8 @@ WithInitialTermSize(w, h))`, `Send`, `Type`, `WaitFor`, `FinalModel`,
 - `TestColumns_issueMovedFromListAppearsOnBoard`
 - `TestColumns_cap500CardsShowsNotice`
 - `TestBoard_setupStates_noBoard_several_missingScope_noStatusField`
+- `TestBoardSetup_stateByCandidateCount`
+- `TestBoardSetup_PChoosesProjectInNoBoardAndNoStatusField`
 - `TestBoard_refreshOnSetupCallsRefreshMetadataFirst`
 - `TestBoard_chooseProjectReloadsInfoThenBoard`
 

@@ -410,7 +410,7 @@ func tsvField(string) string
 - Project TSV: owner,number,title,url,usable; labels name,description,color; assignees login,name.
 - Empty result is the approved plain sentence. Truncation summary is prose; TSV is convenient human piping, JSON remains the contract.
 - Detail text: metadata prelude, body and chronological comment sections. Terminal body uses renderer.Render(raw,width,style); pipe body uses markdown.SanitizeBody raw source.
-- Every short GitHub field/error/hint goes through markdown.SanitizeLine before terminal output. Generated table styles are applied afterward.
+- Every short GitHub field/error/hint goes through markdown.SanitizeLine before any text output, including piped TSV; only JSON skips this sanitisation. Generated table styles are applied afterward.
 - Width fallback80, no default body width above100. NO_COLOR being present or --no-color disables colours. Piped output never has ANSI.
 - CLI Markdown style is Plain when colour is disabled, Light for TODOS_THEME=light, otherwise Dark. Terminal background detection belongs to the TUI event loop; CLI does not block on a terminal background query.
 - Quick-add human result names created/open/unplaced/skipped/failed/uncertain/unattempted rows and all counts; never suggest rerunning the whole input.

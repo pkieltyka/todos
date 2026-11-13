@@ -251,7 +251,7 @@ No per-issue lock or service-wide semaphore is introduced. TUI queues provide or
 - Other public Completed names are only created/commented/added_to_board. Never invent closed/labeled/assigned step names.
 - Partial copies underlying Uncertain/Err/Cause, carries acknowledged Issue, and preserves context cancellation through Unwrap.
 - A first ambiguous create without confirmed step returns underlying timeout/network with Uncertain; RunQuickAdd elevates it to partial per its special contract.
-- No-op result has Changed=false and current summary. A post-write refresh belongs to TUI; its failure never turns an acknowledged write into rejection.
+- No-op result has Changed=false and current summary. The TUI uses an acknowledged write result without another read; only uncertain outcomes require a reconciliation read. A later scheduled refresh cannot turn an acknowledged write into rejection.
 
 ## Pure quick-add parser
 
@@ -416,6 +416,7 @@ Both CLI and TUI tests use this fake. Do not create a second face-specific fake.
 
 ```go
 type Fixture struct {
+    Archived map[int]domain.Placement // optional archived membership for restore tests
     Session domain.Session
     Credentials domain.CredentialInfo
     Issues []domain.IssueDetail
@@ -461,7 +462,6 @@ type Gate struct {
 }
 type gateMode int // wait, fail before effect, apply then fail
 type Fake struct {
-    delegate service.Service
     mu sync.Mutex
     fixture Fixture
     calls []Call
@@ -484,10 +484,12 @@ func (f *Fake) SetRateLimit(domain.RateLimit)
 ```
 
 - Fake implements every exact Service signature above through explicit wrappers; compile-time `var _ service.Service = (*Fake)(nil)` catches missing methods.
-- Delegate to the real core over a private in-memory Backend and SettingsStore, so validation, pagination, partial results and quick-add phases do not drift.
-- In-memory Backend implements every Backend signature above; its mutable source is Fixture. No network/config/env reads.
-- Internal constructor signatures: `newBackend(*Fake) Backend`, `newSettings(*Fake) SettingsStore`, `cloneFixture(Fixture) Fixture`, `(*Fake).begin(ctx context.Context, method string, args Arguments) (*Gate, int, error)`, `(*Fake).finish(callIndex int, err error)`, `(*Fake).wait(context.Context, time.Duration) error`.
-- Default time is exactly 2026-11-13T12:00:00Z. Injected Wait advances this clock synchronously; no tests sleep.
+- Directly implement Service over Fixture. Do not construct or delegate to the real service, Backend, or SettingsStore.
+- Reads page fixture values; writes apply simple set semantics. Do not duplicate real validation or multi-step use cases: tests stage refusals/partial/uncertain outcomes through gates.
+- No network, config or environment reads.
+- Private helpers clone fixture/argument/result data, begin/finish call-log entries, and await gates without holding the fixture mutex. There is no in-memory Backend or real-service constructor.
+- Phase 1 implements every read, single-issue change and board change. PlanQuickAdd and RunQuickAdd return a typed internal error until Phase 5; their full behaviour and named phase/item-gate tests are deferred to that phase.
+- Default time is exactly 2026-11-13T12:00:00Z. Fixture mutations advance a deterministic clock; gates, never sleeps, stage races.
 - Fixture issues are canonical; board-card reads refresh their embedded Issue from that source while preserving column order/placement.
 - Hold matches one future call by method/number, consumed in registration order. Number0 means non-issue/session/list/board call; quick-add item gates use zero-based input Index.
 - A gate closes Started when the matched call arrives; waits without holding fake mu. Context cancellation unblocks it immediately.
@@ -497,7 +499,7 @@ func (f *Fake) SetRateLimit(domain.RateLimit)
 - Calls records all arguments as deep copies plus monotonic start/end order, including failed/canceled calls. Tests can compute overlap from that ordering.
 - Mutate holds fake mu only during the callback, allowing tests to simulate github.com edits. Tests must not call fake Service recursively inside it.
 - SetRateLimit updates a snapshot under mu; RateLimit is ungated/nonblocking.
-- Fake RunQuickAdd calls the real executor, passes callbacks through and honors StopRequested. `Hold("RunQuickAdd.item", index)` gates that item's create Backend effect after creating progress; ApplyThenFail models an uncertain create with fixture effect. Every phase/OnProgress failure is exercised, no sleeps.
+- From Phase 5 the fake quick-add methods directly apply fixture effects and emit creating/closing/placing/settled phases, honour StopRequested between items, and never sleep or use the real executor. `Hold("RunQuickAdd.item", index)` will gate each item; until then both quick-add methods return internal without effects.
 - All fixture/results/calls returned to tests are cloned; fixture mutation never aliases a live TUI result.
 
 Required fixtures:

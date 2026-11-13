@@ -27,7 +27,7 @@ type Repository struct {
 }
 type User struct { NodeID NodeID; Login, Name string }
 type Label struct { NodeID NodeID; Name, Description, Color string } // six hex digits, no '#'
-type Session struct { Repo Repository; Viewer User; IssuesEnabled bool }
+type Session struct { Repo Repository; Viewer User }
 type CredentialInfo struct { Source string; Scopes []string } // no token field
 type IssueState string // open, closed
 type StateReason string // completed, not_planned, reopened; nil for unknown/unsupported
@@ -184,7 +184,7 @@ func (*Error) Unwrap() error
 | `Board.CardsTruncated` | More than 500 visible cards; used only by the TUI to limit display |
 
 - `IssueDetail` and `PRDetail` contain body but no comments: comments have a separate paged read.
-- `Change.Issue` is acknowledged write state. The TUI schedules its own follow-up read.
+- `Change.Issue` is acknowledged write state. The TUI uses it directly; it does not re-read after a successful write. An uncertain write is reconciled with a fresh read.
 - CloseOptions.Reason is completed or not_planned internally; CLI alone accepts the not-planned flag spelling.
 - `Card` embeds `Issue`; row and board pending changes use the same shape.
 - Issue labels and memberships stop at the first 100. No overflow query or ExtraLabels operation exists.
