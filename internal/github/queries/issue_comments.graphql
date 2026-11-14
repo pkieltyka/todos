@@ -1,0 +1,13 @@
+query IssueComments($owner: String!, $repo: String!, $number: Int!, $first: Int!, $after: String) {
+  repository(owner: $owner, name: $repo) {
+    issue(number: $number) {
+      comments(first: $first, after: $after) {
+        totalCount nodes { ...CommentFields } pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+}
+
+fragment CommentFields on IssueComment {
+  id author { login } createdAt body url
+}

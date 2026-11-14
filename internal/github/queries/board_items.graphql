@@ -1,0 +1,37 @@
+query BoardItems($id: ID!, $first: Int!, $after: String) {
+  node(id: $id) {
+    ... on ProjectV2 {
+      items(first: $first, after: $after, archivedStates: [NOT_ARCHIVED],
+            orderBy: {field: POSITION, direction: ASC}) {
+        totalCount pageInfo { hasNextPage endCursor }
+        nodes {
+          ...PlacementFields
+          content {
+            __typename
+            ... on Issue { ...IssueSummary repository { id nameWithOwner } }
+          }
+        }
+      }
+    }
+  }
+}
+
+fragment IssueSummary on Issue {
+  id number title state stateReason author { login }
+  assignees(first: 10) { nodes { id login name } }
+  labels(first: 100) {
+    nodes { id name color description }
+    pageInfo { hasNextPage endCursor }
+  }
+  milestone { title }
+  comments { totalCount }
+  createdAt updatedAt closedAt url viewerCanUpdate viewerCanDelete
+}
+
+fragment PlacementFields on ProjectV2Item {
+  id isArchived project { id }
+  fieldValueByName(name: "Status") {
+    __typename
+    ... on ProjectV2ItemFieldSingleSelectValue { name optionId }
+  }
+}

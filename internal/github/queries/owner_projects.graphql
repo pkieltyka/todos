@@ -1,0 +1,21 @@
+query OwnerProjects($owner: String!, $first: Int!, $after: String) {
+  repositoryOwner(login: $owner) {
+    __typename
+    ... on User {
+      projectsV2(first: $first, after: $after) {
+        totalCount nodes { ...ProjectSummary } pageInfo { hasNextPage endCursor }
+      }
+    }
+    ... on Organization {
+      projectsV2(first: $first, after: $after) {
+        totalCount nodes { ...ProjectSummary } pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+}
+
+fragment ProjectSummary on ProjectV2 {
+  id number title url updatedAt closed viewerCanUpdate
+  owner { __typename ... on User { login } ... on Organization { login } }
+  items(first: 1, archivedStates: [NOT_ARCHIVED]) { totalCount }
+}

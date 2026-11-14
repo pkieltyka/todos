@@ -1,0 +1,24 @@
+ todos  pkieltyka/todos    1 Issues  2 PRs  3 Board           ● synced just now 
+ ‹ Issues  #6                                                            ○ Open 
+ Fix flaky sync when gh is offline                                              
+ @pkieltyka opened 1d ago · updated 1h ago · 2 comments                         
+ Assignees @reviewer  Labels ● sync  ⠋+docs  bug  Board No status  Milestone —  
+────────────────────────────────────────────────────────────────────────────────
+                                                                                
+  When  gh  can't reach the network the refresh spinner never stops.            
+                                                                                
+  ## Steps                                                                      
+                                                                                
+  1. Disconnect wifi                                                            
+  2. Press r                                                                    
+                                                                                
+    if err != nil { return err }                                                
+                                                                                
+── @reviewer · 1h ago ──────────────────────────────────────────────────────────
+  Reproduced. Thanks!                                                           
+                                                                                
+── @pkieltyka · 30m ago ────────────────────────────────────────────────────────
+  Thanks, assigning to me.                                                      
+                                                                                
+                                                                                
+ j/k scroll  ]/[ comments  e edit  c comment  a assign  L label  ? help    100% 

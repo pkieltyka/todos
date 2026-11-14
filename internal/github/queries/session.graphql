@@ -1,0 +1,6 @@
+query Session($owner: String!, $repo: String!) {
+  viewer { id login name }
+  repository(owner: $owner, name: $repo) {
+    id nameWithOwner url hasIssuesEnabled viewerPermission viewerCanCreateIssues
+  }
+}

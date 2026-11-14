@@ -1,0 +1,13 @@
+query LinkedProjects($owner: String!, $repo: String!, $first: Int!, $after: String) {
+  repository(owner: $owner, name: $repo) {
+    projectsV2(first: $first, after: $after) {
+      totalCount nodes { ...ProjectSummary } pageInfo { hasNextPage endCursor }
+    }
+  }
+}
+
+fragment ProjectSummary on ProjectV2 {
+  id number title url updatedAt closed viewerCanUpdate
+  owner { __typename ... on User { login } ... on Organization { login } }
+  items(first: 1, archivedStates: [NOT_ARCHIVED]) { totalCount }
+}

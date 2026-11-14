@@ -1,0 +1,21 @@
+query ProjectFields($id: ID!, $after: String) {
+  node(id: $id) {
+    ... on ProjectV2 {
+      ...ProjectSummary
+      fields(first: 100, after: $after) {
+        nodes {
+          __typename
+          ... on ProjectV2FieldCommon { id name }
+          ... on ProjectV2SingleSelectField { options { id name color } }
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+}
+
+fragment ProjectSummary on ProjectV2 {
+  id number title url updatedAt closed viewerCanUpdate
+  owner { __typename ... on User { login } ... on Organization { login } }
+  items(first: 1, archivedStates: [NOT_ARCHIVED]) { totalCount }
+}

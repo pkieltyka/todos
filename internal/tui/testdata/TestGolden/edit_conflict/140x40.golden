@@ -1,0 +1,40 @@
+ todos  pkieltyka/todos    1 Issues   2 Pull requests   3 Board                                                           ● synced just now
+ open ▾ · mine: off · filter: —                                                                                               4 open issues
+ Edit #6                                                                                                                  ✎ write │ preview
+ Title     ▌Fix flaky sync when gh is offline!
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── Body
+  When `gh` can't reach the network the refresh spinner never stops.                                                                      
+                                                                                                                                          
+  ## Steps                                                                                                                                
+                                                                                                                                          
+  1. Disconnect wifi                                                                                                                      
+  2. Press r                                                                                                                              
+                                                                                                                                          
+  ```go                                                                                                                                   
+  if err != nil { return err }                                                                                                            
+  ```                                                                                                                                     
+                                                                                                                                          
+                                                                                                                                          
+                                                                                                                                          
+                                         ┌ #6 changed on GitHub since you started editing ────────┐                                       
+                                         │ The title or body was changed by someone else.         │                                       
+                                         │ o overwrite with my version   esc keep editing         │                                       
+                                         └────────────────────────────────────────────────────────┘                                       
+                                                                                                                                          
+                                                                                                                                          
+                                                                                                                                          
+                                                                                                                                          
+                                                                                                                                          
+                                                                                                                                          
+                                                                                                                                          
+                                                                                                                                          
+                                                                                                                                          
+                                                                                                                                          
+                                                                                                                                          
+                                                                                                                                          
+                                                                                                                                          
+                                                                                                                                          
+                                                                                                                                          
+                                                                                                                                          
+                                                                                                                                          
+ o overwrite with my version  esc keep editing

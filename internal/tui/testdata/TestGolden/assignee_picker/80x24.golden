@@ -1,0 +1,24 @@
+ todos  pkieltyka/todos    1 Issues  2 PRs  3 Board           ● synced just now
+ open ▾ · mine: off · filter: —                                   4 open issues
+▌○ #6     Fix flaky sync when gh is offline           bug sync   @reviewer  1h
+ ○ #5     Issue 5                                     sync       @pkieltyka 2h
+ ○ #4     Issue 4                                     docs       @reviewer  3h
+ ○ #1     Issue 1                                     docs       @pkieltyka 6h
+
+
+                  ┌ Assignees · #6 ──────────────────────────┐
+                  │ /                                        │
+                  │ ▌[ ] @me (pkieltyka)                     │
+                  │  [x] @reviewer                           │
+                  │  [ ] @octocat                            │
+                  │                                          │
+                  │ 1 selected · max 10                      │
+                  │ space toggle  enter apply  esc cancel    │
+                  └──────────────────────────────────────────┘
+
+
+
+
+
+
+ j/k move  space toggle  enter apply  / filter  esc cancel

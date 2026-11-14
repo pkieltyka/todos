@@ -1,0 +1,7 @@
+   #    TITLE                                     LABELS     ASSIGNEES   UPDATED
+○  6    Fix flaky sync when gh is offline         bug, sync  reviewer    1h
+○  5    Issue 5                                   sync       pkieltyka   2h
+○  4    Issue 4                                   docs       reviewer    3h
+✓  3    Issue 3                                   bug        pkieltyka   4h
+⊘  2    Issue 2                                   sync       reviewer    5h
+○  1    Issue 1                                   docs       pkieltyka   6h

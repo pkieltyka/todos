@@ -1,0 +1,8 @@
+query Labels($owner: String!, $repo: String!, $first: Int!, $after: String) {
+  repository(owner: $owner, name: $repo) {
+    labels(first: $first, after: $after, orderBy: {field: NAME, direction: ASC}) {
+      totalCount nodes { id name description color }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}

@@ -1,0 +1,40 @@
+ todos  pkieltyka/todos    1 Issues   2 Pull requests   3 Board                                                           ● synced just now 
+ ‹ Issues  #6  Fix flaky sync when gh is offline                                                                                     ○ Open 
+───────────────────────────────────────────────────────────────────────────────────────────────────────────┬────────────────────────────────
+                                                                                                           │ Author     @pkieltyka          
+  When  gh  can't reach the network the refresh spinner never stops.                                       │ Opened     1 day ago           
+                                                                                                           │ Updated    1 hour ago          
+  ## Steps                                                                                                 │ State      ○ Open              
+                                                                                                           │ Assignees  @reviewer           
+  1. Disconnect wifi                                                                                       │ Labels     ● bug               
+  2. Press r                                                                                               │            ● sync              
+                                                                                                           │ Board      No status           
+    if err != nil { return err }                                                                           │ Milestone  —                   
+                                                                                                           │ URL        github.com/…/6      
+── @reviewer · 1h ago ─────────────────────────────────────────────────────────────────────────────────────│                                
+  Reproduced. Thanks!                                                                                      │                                
+                                                                                                           │                                
+── @pkieltyka · 30m ago ───────────────────────────────────────────────────────────────────────────────────│                                
+  Thanks, assigning to me.                                                                                 │                                
+                                                                                                           │                                
+                                                                                                           │                                
+                                                                                                           │                                
+                                                                                                           │                                
+                                                                                                           │                                
+                                                                                                           │                                
+                                                                                                           │                                
+                                                                                                           │                                
+                                                                                                           │                                
+                                                                                                           │                                
+                                                                                                           │                                
+                                                                                                           │                                
+                                                                                                           │                                
+                                                                                                           │                                
+                                                                                                           │                                
+                                                                                                           │                                
+                                                                                                           │                                
+                                                                                                           │                                
+                                                                                                           │                                
+                                                                                                           │                                
+                                                                                                           │                                
+ j/k scroll  ]/[ comments  e edit  c comment  a assign  L label  x close  esc back  n new  A quick add  X not planned  ? help          100% 

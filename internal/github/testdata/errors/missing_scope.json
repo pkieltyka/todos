@@ -1,0 +1,1 @@
+{"data":{"repository":null},"errors":[{"type":"INSUFFICIENT_SCOPES","message":"The token requires read:project scope","path":["repository","projectsV2"]}]}

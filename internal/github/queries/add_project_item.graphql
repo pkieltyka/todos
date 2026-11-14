@@ -1,0 +1,11 @@
+mutation AddProjectItem($input: AddProjectV2ItemByIdInput!) {
+  addProjectV2ItemById(input: $input) { item { ...PlacementFields } }
+}
+
+fragment PlacementFields on ProjectV2Item {
+  id isArchived project { id }
+  fieldValueByName(name: "Status") {
+    __typename
+    ... on ProjectV2ItemFieldSingleSelectValue { name optionId }
+  }
+}

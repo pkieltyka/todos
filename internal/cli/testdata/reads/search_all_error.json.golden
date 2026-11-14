@@ -1,0 +1,1 @@
+{"error":{"kind":"invalid_input","message":"search --all cannot return more than 1000 matches","hint":"narrow the search query","uncertain":false}}

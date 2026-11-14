@@ -1,0 +1,4 @@
+	6	Fix flaky sync when gh is offline	open	bug,sync	reviewer	https://github.com/pkieltyka/todos/issues/6
+Todo	5	Issue 5	open	sync	pkieltyka	https://github.com/pkieltyka/todos/issues/5
+In progress	4	Issue 4	open	docs	reviewer	https://github.com/pkieltyka/todos/issues/4
+Hidden items: 2.
