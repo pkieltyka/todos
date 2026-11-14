@@ -13,11 +13,15 @@ Linux or macOS, Go 1.27.3 or newer to build, and GitHub credentials from
 Use `gh auth refresh -s project` to add board access when needed.
 A terminal of at least 80×24 is required for the TUI.
 
-Install with Go:
+Install with Go. While the repository is private, Go must be told not to
+look it up in the public checksum database, and git needs access to it:
 
 ```sh
-go install github.com/pkieltyka/todos@latest
+GOPRIVATE=github.com/pkieltyka/todos go install github.com/pkieltyka/todos@latest
 ```
+
+Once the repository is public, plain `go install github.com/pkieltyka/todos@latest`
+is enough.
 
 Or build from a checkout:
 
