@@ -1,7 +1,8 @@
 .PHONY: build test check install clean help
 
 build:
-	go build -o todos .
+	mkdir -p bin
+	go build -o bin/todos .
 
 test:
 	go test ./...
@@ -16,13 +17,14 @@ install:
 	go install .
 
 clean:
+	rm -rf bin
 	rm -f todos
 
 help:
 	@printf '%s\n' \
-	  'build    Build ./todos (default)' \
+	  'build    Build ./bin/todos (default)' \
 	  'test     Run tests without the race detector' \
 	  'check    Check formatting, vet and race tests' \
 	  'install  Install todos with go install' \
-	  'clean    Remove ./todos' \
+	  'clean    Remove ./bin/ and stray ./todos' \
 	  'help     Show available targets'

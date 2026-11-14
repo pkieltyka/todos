@@ -28,8 +28,8 @@ Or build from a checkout:
 ```sh
 git clone https://github.com/pkieltyka/todos.git
 cd todos
-go build -o todos .
-./todos
+make build
+./bin/todos
 ```
 
 `todos version --json` reports the installed module version, or Go's version
@@ -119,11 +119,11 @@ all commands, JSON shapes, exit codes, and partial/uncertain recovery.
 
 ## Development
 
-- `make` or `make build`: build `./todos`.
+- `make` or `make build`: build `./bin/todos`.
 - `make test`: run tests without the race detector.
 - `make check`: check formatting, vet and race tests without GitHub access.
 - `make install`: install with `go install .`.
-- `make clean`: remove the built `./todos` binary.
+- `make clean`: remove `./bin/` and any stray `./todos` binary.
 - `make help`: print the available targets.
 
 Opt-in live tests are read-only and require an explicit repository:
