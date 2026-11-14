@@ -184,6 +184,9 @@ func (b *quickBackend) SetProjectStatus(ctx context.Context, pid, item, field do
 				if option == "done" {
 					name = "Done"
 				}
+				if option == "sprint" {
+					name = "Sprint"
+				}
 				p.Status = &name
 				p.OptionID = option
 				b.placements[id] = p

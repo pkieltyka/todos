@@ -1,6 +1,6 @@
 ---
 name: todos
-description: Manage GitHub issues and a project board, read pull requests, and file punch lists through the todos CLI.
+description: Use when asked to list, create, update, close or move GitHub issues or project board cards for a repository, read pull requests, or file several issues from a list.
 ---
 
 # todos
@@ -27,6 +27,42 @@ are read-only. All commands are noninteractive except the TUI.
 - When an operation fails, run `todos doctor --json` and inspect its report
   and exit code. Never print tokens or change authentication/permissions on
   the user's behalf.
+
+## Typical tasks
+
+Triage an issue after reading it and checking the available labels, assignees
+and board statuses:
+
+```sh
+todos view 12 --json
+todos label 12 bug --json
+todos assign 12 @me --json
+todos move 12 'In progress' --json
+```
+
+Check the view's identity/body; then check each returned issue's labels,
+assignees and board_status. changed:false means the requested value was already set.
+
+Create and place an issue in one operation:
+
+```sh
+todos add 'Fix login redirect' --body-file details.md --assign @me --label bug --status Sprint --json
+```
+
+Check issue.number, issue.url and board_status. On partial, use the known number
+and completed steps to finish placement; do not create the issue again.
+
+File a punch list after reviewing its preview, using the same file and options:
+
+```sh
+todos quick-add --file tasks.md --checked skip --status Sprint --dry-run --json
+todos quick-add --file tasks.md --checked skip --status Sprint --json
+```
+
+Check every planned title/body and the planned/skipped counts before running;
+afterwards inspect every row's result, issue, error, on_board and closed. If the
+run stops, keep only failed/unattempted rows for a new file, resolve uncertain
+rows on GitHub first, and finish any created-but-unplaced issue with move.
 
 ## Commands and flags
 

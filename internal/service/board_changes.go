@@ -2,6 +2,9 @@ package service
 
 import (
 	"context"
+	"errors"
+	"strings"
+
 	"github.com/pkieltyka/todos/internal/domain"
 )
 
@@ -18,6 +21,13 @@ func (s *core) membership(ctx context.Context, id, projectID domain.NodeID) (*do
 	}
 	return nil, nil
 }
+
+// GitHub reports this race as a definite UNPROCESSABLE rejection. Never use
+// an uncertain response (or an unrelated failure) to continue mutating.
+func duplicateProjectItem(err error) bool {
+	var de *domain.Error
+	return errors.As(err, &de) && de.Kind == domain.ErrInvalidInput && !de.Uncertain && strings.Contains(strings.ToLower(de.Message), "content already exists in this project")
+}
 func (s *core) placeIssue(ctx context.Context, i domain.Issue, b domain.BoardInfo, status *string, preserve bool) (domain.Change, error) {
 	option, err := statusOption(b, status)
 	if err != nil {
@@ -31,14 +41,30 @@ func (s *core) placeIssue(ctx context.Context, i domain.Issue, b domain.BoardInf
 	i.Board = nil
 	changed := false
 	completed := []string{}
-	if member != nil && !member.Archived {
-		p := member.Placement
-		i.Board = &p
-		if preserve {
-			return domain.Change{Issue: i}, nil
+	added := false
+	if member == nil {
+		p, e := s.backend.AddProjectItem(ctx, b.Project.NodeID, i.NodeID)
+		if e != nil {
+			if !duplicateProjectItem(e) {
+				return domain.Change{Issue: i}, typed(e)
+			}
+			// The add was definitely rejected. A workflow may have won the race;
+			// read its item once, then continue with that item rather than retry add.
+			member, err = s.membership(ctx, i.NodeID, b.Project.NodeID)
+			if err != nil {
+				return domain.Change{Issue: i}, err
+			}
+			if member == nil {
+				return domain.Change{Issue: i}, typed(e)
+			}
+		} else {
+			member = &domain.ProjectItem{ID: p.ItemID, ProjectID: b.Project.NodeID, Placement: p}
+			added = true
+			changed = true
+			completed = append(completed, "added_to_board")
 		}
 	}
-	if member != nil && member.Archived {
+	if member.Archived {
 		p, e := s.backend.UnarchiveProjectItem(ctx, b.Project.NodeID, member.ID)
 		if e != nil {
 			return domain.Change{Issue: i}, typed(e)
@@ -46,17 +72,12 @@ func (s *core) placeIssue(ctx context.Context, i domain.Issue, b domain.BoardInf
 		i.Board = &p
 		changed = true
 		completed = append(completed, "added_to_board")
-		if preserve {
-			return domain.Change{Issue: i, Changed: true}, nil
-		}
-	} else if member == nil {
-		p, e := s.backend.AddProjectItem(ctx, b.Project.NodeID, i.NodeID)
-		if e != nil {
-			return domain.Change{Issue: i}, typed(e)
-		}
+	} else {
+		p := member.Placement
 		i.Board = &p
-		changed = true
-		completed = append(completed, "added_to_board")
+	}
+	if preserve && !added {
+		return domain.Change{Issue: i, Changed: changed}, nil
 	}
 	same := option == nil && i.Board.Status == nil || option != nil && i.Board.Status != nil && *i.Board.Status == option.Name
 	if same {

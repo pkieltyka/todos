@@ -4,9 +4,7 @@ Owner of this file: @pm. Only @pm edits it; ask @pm to add or change items.
 
 ## Now
 
-- [ ] Phase 7: Quick add, core — @lead-dev — in progress
-- [ ] Phase 8: Quick add, TUI — @frontend-dev — in progress (parallel with Phase 7)
-- [ ] Phase 9: Skill and release readiness — @lead-dev + @frontend-dev — not started
+- [ ] Phase 9: Skill and release readiness — @lead-dev + @frontend-dev — in progress; core half done (see Done); remaining is the TUI half by @frontend-dev: delayed re-read after a create or board change, wording fixes, cosmetic polish, and a live quick add run against the real repository; then final review, last commit, and closing issue 10
 
 ## Polish for Phase 9
 
@@ -20,6 +18,10 @@ Owner of this file: @pm. Only @pm edits it; ask @pm to add or change items.
 
 ## Done
 
+- [x] Phase 7: Quick add, core — @lead-dev — done; reviewed by @reviewer with no defects, committed as `a28c1e7`
+- [x] Phase 8: Quick add, TUI — @frontend-dev — done; reviewed by @reviewer, committed as `db13c8f`
+- [x] Phase 9 core half: agent skill, README, version and cleanup — @lead-dev — done; reviewed with no defects, committed as `38c4888`
+- [x] TUI write actions dogfooded against the real repository on throwaway issues 20 and 21, both deleted; during the run issue 6 was moved by mistake because of a focus bug, now fixed; issues 6–10 were then put into their true state with the `todos` binary
 - [x] Phase 5: Changes, core — @lead-dev — done; reviewed by @reviewer with no defects, committed as `14c6111`; `todos` can now create and change issues and move cards, and it was used to close issues 5, 11 and 12 and move issue 6 to In progress on the real board
 - [x] Phase 6: Changes, TUI — @frontend-dev — done; reviewed by @reviewer, two findings fixed, committed as `2410deb`
 - [x] Phase 4: First dogfood — @lead-dev + @frontend-dev — done; reviewed by @reviewer with one finding fixed, committed as `9fb1f65`; `todos` with no arguments now opens the real TUI against GitHub, and issues 1–14 exist on `pkieltyka/playg` and its board
@@ -51,7 +53,9 @@ Owner of this file: @pm. Only @pm edits it; ask @pm to add or change items.
 - At the end of Phase 5, @lead-dev uses the `todos` binary itself to close issues 5, 11 and 12 and move issue 6 to In progress.
 - @lead-dev's session was compacted at the Phase 4 boundary.
 - Removing an assignee or label is judged against the issue itself, so a person who left the organisation can still be unassigned.
-- Six of nine phases are committed.
+- All eight feature phases are committed.
+- A local build reports the version control stamp as its version; `go install` by module path works only after the repository is renamed from `playg` to `todos`.
+- The pull request detail view has never been exercised against real data: the repository has no pull requests and nothing has been pushed.
 - Decisions from Peter:
   - One repo and one board per run.
   - The board shows issue cards only and moves them between Status columns.

@@ -123,7 +123,7 @@ func classify(err error, op operation, meta responseMeta, now time.Time) *domain
 		out.Kind = domain.ErrForbidden
 		out.Message = "GitHub refused this operation"
 		if text != "" {
-			out.Message += " : " + text
+			out.Message += ": " + text
 		}
 	case status == http.StatusNotFound || hasCode("NOT_FOUND"):
 		out.Kind = domain.ErrNotFound
@@ -139,7 +139,7 @@ func classify(err error, op operation, meta responseMeta, now time.Time) *domain
 		out.Kind = domain.ErrInvalidInput
 		out.Message = "GitHub rejected the supplied values"
 		if text != "" {
-			out.Message += " : " + text
+			out.Message += ": " + text
 		}
 	default:
 		out.Kind = domain.ErrGitHub

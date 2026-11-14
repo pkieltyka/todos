@@ -167,3 +167,30 @@ func TestIssue_AssigneeIDsRetained(t *testing.T) {
 		t.Fatal("aliased IDs")
 	}
 }
+
+func TestErrors_RefusalAndValidationColon(t *testing.T) {
+	for _, tc := range []struct {
+		code int
+		kind domain.ErrorKind
+		want string
+	}{{403, domain.ErrForbidden, "GitHub refused this operation: denied"}, {422, domain.ErrInvalidInput, "GitHub rejected the supplied values: denied"}} {
+		c := testClient(t, func(request) (*http.Response, error) {
+			return response(tc.code, `{"message":"denied"}`, http.Header{"Content-Type": []string{"application/json"}}), nil
+		})
+		de := kind(t, c.DeleteIssue(context.Background(), "I1"), tc.kind)
+		if de.Message != tc.want {
+			t.Fatalf("want %q, got %q", tc.want, de.Message)
+		}
+	}
+}
+
+func TestAddProjectItem_DuplicateRejectionIsCertain(t *testing.T) {
+	c := testClient(t, func(request) (*http.Response, error) {
+		return response(200, `{"data":{"addProjectV2ItemById":null},"errors":[{"type":"UNPROCESSABLE","message":"Content already exists in this project"}]}`, http.Header{"Content-Type": []string{"application/json"}}), nil
+	})
+	_, e := c.AddProjectItem(context.Background(), "P1", "I1")
+	de := kind(t, e, domain.ErrInvalidInput)
+	if de.Uncertain || de.Message != "GitHub rejected the supplied values: Content already exists in this project" {
+		t.Fatal(de)
+	}
+}

@@ -15,7 +15,7 @@ func TestVersion_ModuleBuildInfoAndOverride(t *testing.T) {
 	for _, tc := range []struct {
 		name, override, module, want string
 		ok                           bool
-	}{{"installed", "dev", "v1.2.3", "v1.2.3", true}, {"pseudo", "dev", "v0.0.0-20261113230000-0123456789ab", "v0.0.0-20261113230000-0123456789ab", true}, {"local", "dev", "(devel)", "dev", true}, {"missing-module", "dev", "", "dev", true}, {"no-build-info", "dev", "v1.2.3", "dev", false}, {"release-override", "v2.0.0", "v1.2.3", "v2.0.0", true}, {"empty-override", "", "v1.2.3", "v1.2.3", true}} {
+	}{{"installed", "dev", "v1.2.3", "v1.2.3", true}, {"pseudo", "dev", "v0.0.0-20261113230000-0123456789ab", "v0.0.0-20261113230000-0123456789ab", true}, {"metadata-without-vcs-stamp", "dev", "(devel)", "dev", true}, {"checkout-vcs-stamp", "dev", "v0.0.0-20261113232207-db13c8f51ecb+dirty", "v0.0.0-20261113232207-db13c8f51ecb+dirty", true}, {"missing-module", "dev", "", "dev", true}, {"no-build-info", "dev", "v1.2.3", "dev", false}, {"release-override", "v2.0.0", "v1.2.3", "v2.0.0", true}, {"empty-override", "", "v1.2.3", "v1.2.3", true}} {
 		t.Run(tc.name, func(t *testing.T) {
 			info := &debug.BuildInfo{Main: debug.Module{Version: tc.module}}
 			if got := buildVersion(tc.override, info, tc.ok); got != tc.want {

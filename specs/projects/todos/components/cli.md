@@ -29,13 +29,15 @@ import (
 //go:embed skills/todos/SKILL.md
 var skill []byte
 
-var version = "dev" // release build: -ldflags=-X=main.version=VERSION
+var version = "dev" // override sentinel; release: -ldflags=-X=main.version=VERSION
 
-func main() { cli.Main(skill, version) }
+func main() { cli.Main(skill, runtimeVersion(version)) }
 ```
 
 - Module root entrypoint yields binary todos for go install github.com/pkieltyka/todos@latest.
 - No command construction, GitHub calls or domain behaviour in main.
+- `version.go` reads `runtime/debug.ReadBuildInfo`: an explicit nonempty, non-dev linker override wins; otherwise use `BuildInfo.Main.Version` when nonempty and not `(devel)`.
+- Installed module builds report their module version. Local builds inside a Git checkout report the toolchain's VCS version stamp, including `+dirty` where applicable. `dev` is only a fallback when usable version metadata is absent; it is not the promised output of a checkout build.
 
 ## Construction and injection
 

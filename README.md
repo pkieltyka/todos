@@ -29,6 +29,11 @@ After the rename:
 go install github.com/pkieltyka/todos@latest
 ```
 
+`todos version --json` reports the installed module version, or Go's version
+control stamp for a build in a Git checkout (including `+dirty` when applicable).
+A release `-ldflags '-X=main.version=VERSION'` override takes precedence;
+`dev` is only the fallback when no usable build metadata is available.
+
 Select a repository with `--repo OWNER/REPO`, then `GH_REPO`, or let gh choose
 the git remote. Use `--project OWNER/NUMBER` for a specific board; otherwise
 todos uses the remembered choice or linked project. `todos doctor --json`

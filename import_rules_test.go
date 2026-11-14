@@ -69,9 +69,6 @@ func TestMain_EmbedAndRootBinary(t *testing.T) {
 	if string(file) != string(skill) {
 		t.Fatal("embedded skill differs from source")
 	}
-	if version != "dev" {
-		t.Fatalf("unexpected development version: %q", version)
-	}
 }
 
 func importAllowed(from, to string, isTest bool) bool {

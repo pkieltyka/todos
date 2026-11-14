@@ -248,6 +248,8 @@ No per-issue lock or service-wide semaphore is introduced. TUI queues provide or
 - All membership lookups stop at100; use node/item/field/option IDs inside Backend.
 - Restoring archived membership uses UnarchiveProjectItem; confirmed restoration records added_to_board.
 - Adding missing membership records added_to_board; then status failure is partial, no rollback.
+- If AddProjectItem is definitely rejected with GitHub's "Content already exists in this project", a workflow may have won the gap after preflight. Re-read the selected project's membership once; if present, use that item for the requested status/clear (or preserve it for BoardAdd(nil)). Never repeat create/add, and never recover this way from an uncertain or unrelated failure. Missing membership/readback failure stops normally.
+- A workflow-created membership is observed state, not our confirmed added_to_board write. Carry its actual placement in Change.Issue and partial/quick-add results even when the following status update fails; do not report it as off-board.
 - Assignments silently ignored by GitHub are forbidden. If creation already succeeded, return partial(Cause=forbidden, Completed=[created]).
 - If a picker removal succeeded and its addition failed, return partial with internal Completed=[removed] and best-known Issue. CLI commands never issue both deltas in one call, so removed cannot leak to public CLI errors.
 - Other public Completed names are only created/commented/added_to_board. Never invent closed/labeled/assigned step names.
