@@ -275,7 +275,7 @@ func tuiRuntime(cmd *cobra.Command, deps Dependencies) *runtime {
 	return r
 }
 func addTUICommand(root *cobra.Command, deps Dependencies, version func() error) {
-	cmd := &cobra.Command{Use: "tui [issues|prs|board]", Short: "Open the terminal UI", GroupID: "other", Args: cobra.MaximumNArgs(1), Example: "  todos tui\n  todos tui board --repo pkieltyka/playg", RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "tui [issues|prs|board]", Short: "Open the terminal UI", GroupID: "other", Args: cobra.MaximumNArgs(1), Example: "  todos tui\n  todos tui board --repo pkieltyka/todos", RunE: func(cmd *cobra.Command, args []string) error {
 		show, _ := cmd.Flags().GetBool("version")
 		if show {
 			return version()

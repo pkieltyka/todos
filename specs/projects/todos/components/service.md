@@ -383,7 +383,7 @@ func atomicWrite(path string, data []byte) error
 ```yaml
 version: 1
 boards:
-  github.com/pkieltyka/playg:
+  github.com/pkieltyka/todos:
     owner: pkieltyka
     number: 1
 ```

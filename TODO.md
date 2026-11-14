@@ -8,15 +8,16 @@ The build is complete; nothing is in progress.
 
 ## Known limits and follow-ups
 
-- [ ] The pull request detail view has never been run against real data: the repository has no pull requests
-- [ ] `go install` by module path works only after the repository is renamed from `playg` to `todos`
 - [ ] Long URLs in rendered Markdown break at a hyphen
 - [ ] A board's own automations have the last word: on this board, a new issue created with No status usually ends up in Backlog
 - [ ] Detection of the board auto-add rejection depends on the wording of GitHub's error message
-- [ ] No pull request has been opened for branch `todos-v1`
+- [ ] `go install github.com/pkieltyka/todos@latest` has not been tried yet
 
 ## Done
 
+- [x] Pull request 83 (todos v1), opened by @lead-dev, merged to `master` by Peter on 2026-11-14 as `a33a677`; CI passed on Linux and macOS
+- [x] Pull request views ran on real data: while PR 83 was open, @lead-dev ran `todos pr list` and `todos pr view` with and without `--json`, and all four showed correct output
+- [x] Closed issues list in the TUI ordered by most recently closed — commit `a646c89`, reviewed by @reviewer with no findings
 - [x] Phase 9: Skill and release readiness — @lead-dev + @frontend-dev — done; all nine phases are committed on branch `todos-v1`, the last code commit being `c504e3f`
 - [x] No status fix — committed as `c504e3f`
 - [x] Phase 9 TUI half, with the board focus fix — @frontend-dev — committed as `c8b6b23`
@@ -39,12 +40,12 @@ The build is complete; nothing is in progress.
 
 ## Decisions and facts
 
-- Repo `pkieltyka/playg` exists on GitHub, issues enabled.
+- Repo `pkieltyka/todos` (https://github.com/pkieltyka/todos) exists on GitHub, issues enabled; Peter renamed it from `pkieltyka/playg`.
 - gh version: 2.103.3.
 - UI libraries: `charm.land/bubbletea/v2` v2.1.1, `charm.land/lipgloss/v2` v2.1.0, `charm.land/bubbles/v2` v2.2.1.
 - @cto is the only one who commits.
 - Peter asked that the team does not ask him questions; @cto decides and reports.
-- Work happens on branch `todos-v1`; the branch is on GitHub, pushed on 2026-11-13 through `07d3ac4` (not by any agent); the team itself never pushes.
+- v1 is merged to `master` (PR 83, `a33a677`); follow-up work is on branch `rename-cleanup`, not pushed; the team pushes only when Peter asks, as for PR 83.
 - Each phase: developer, `make check`, @reviewer, fixes, @cto review and commit.
 - When two phases finish together, the developers cross-review each other in addition to @reviewer.
 - The shared test fake is a direct in-memory implementation in `internal/service/servicetest`.
@@ -63,7 +64,7 @@ The build is complete; nothing is in progress.
   - Comments can be viewed and added.
   - Flat verb commands: `todos list`, `todos add`, `todos assign`, `todos close`, `todos rm`, `todos move`.
   - `todos rm` is a permanent delete and requires `--yes`.
-  - The repo will be renamed to `todos`; the Go module path is now `github.com/pkieltyka/todos`.
+  - The repo is renamed to `pkieltyka/todos`; the Go module path is `github.com/pkieltyka/todos`.
   - todos calls the GitHub API in-process through the go-gh library and reuses gh credentials; no login flow of our own.
   - Quick add turns a punch list into one issue per item, in the TUI and as the command `todos quick-add`, capped at 50 items, created one at a time.
   - Markdown is rendered with glamour v2; bodies are edited as raw Markdown with a built-in editor, a preview toggle, and a hand-off to the user editor from `VISUAL`/`EDITOR`; no in-app vim mode in v1.

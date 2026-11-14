@@ -13,20 +13,23 @@ Linux or macOS, Go 1.27.3 or newer to build, and GitHub credentials from
 Use `gh auth refresh -s project` to add board access when needed.
 A terminal of at least 80×24 is required for the TUI.
 
-The repository is currently named `playg`; module-path installation works
-only once it is renamed to `todos` and that module is available. Build now:
+Install with Go. While the repository is private, Go must be told not to
+look it up in the public checksum database, and git needs access to it:
 
 ```sh
-git clone https://github.com/pkieltyka/playg.git
-cd playg
-go build -o todos .
-./todos --repo pkieltyka/playg
+GOPRIVATE=github.com/pkieltyka/todos go install github.com/pkieltyka/todos@latest
 ```
 
-After the rename:
+Once the repository is public, plain `go install github.com/pkieltyka/todos@latest`
+is enough.
+
+Or build from a checkout:
 
 ```sh
-go install github.com/pkieltyka/todos@latest
+git clone https://github.com/pkieltyka/todos.git
+cd todos
+go build -o todos .
+./todos
 ```
 
 `todos version --json` reports the installed module version, or Go's version
@@ -124,7 +127,7 @@ This checks formatting, vet and race tests without GitHub access. Opt-in live
 tests are read-only and require an explicit repository:
 
 ```sh
-TODOS_LIVE_TESTS=1 TODOS_LIVE_REPO=pkieltyka/playg go test ./internal/cli -run '^TestLive' -count=1
+TODOS_LIVE_TESTS=1 TODOS_LIVE_REPO=pkieltyka/todos go test ./internal/cli -run '^TestLive' -count=1
 ```
 
 Set `TODOS_LIVE_PROJECT=OWNER/NUMBER` if the repository's board is ambiguous.
