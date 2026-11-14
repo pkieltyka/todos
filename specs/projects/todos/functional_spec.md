@@ -97,7 +97,7 @@ label shortcuts inside a quick-add list.
 
 | Action | Behaviour |
 |---|---|
-| List | Filter by state (`open` default, `closed`, `all`), assignee, label(s), and free-text search. Sorted by most recently updated. |
+| List | Filter by state (`open` default, `closed`, `all`), assignee, label(s), and free-text search. Sorted by most recently updated. In the TUI, the `closed` list is instead sorted by most recently closed; the order is worked out over the issues the TUI has loaded, because GitHub cannot list issues by closed time. |
 | View | Number, title, state and close reason, author, assignees, labels, milestone, created / updated / closed times, board status, URL, body, and comments in chronological order. |
 | Create | Title is required. Optional body, assignees, labels, and a board status. With a status, the new issue is also added to the board in that column. Without one, it is not added to the board. The exception is creating from the TUI's Board view, which always adds the issue to the board in the focused column, including "No status". |
 | Quick add | Create many issues at once from a punch list (4.7). |

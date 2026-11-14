@@ -119,6 +119,9 @@ and full relative times. The tab names are spelled out.
   At 80 columns, labels go first when space is short.
 - State glyphs: `○` open, `✓` closed as completed, `⊘` closed as not planned.
   Colour reinforces the glyph but never replaces it.
+- `open` and `all` list the most recently updated first. `closed` lists the
+  most recently closed first, the time column shows the closed time, and the
+  sub-bar says so: ` closed ▾ by closed time · mine: off · /`.
 - `/` puts the cursor in the sub-bar filter (text mode). Typing narrows the list live.
   `enter` keeps the filter and returns to navigation. `esc` clears it.
 - **Empty states** use the body centre, one line plus the fix:

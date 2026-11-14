@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/x/exp/golden"
 	"github.com/pkieltyka/todos/internal/domain"
@@ -57,6 +58,13 @@ func TestGolden(t *testing.T) {
 			g := h.hold("ListIssues", 0)
 			h.boot()
 			h.fail(g, &domain.Error{Kind: domain.ErrAuth, Message: "not authenticated"})
+			return h
+		}},
+		{"issue_list_closed", func(t *testing.T) *harness {
+			fx := richFixture()
+			fx.Issues[4].Issue.ClosedAt = ptr(fixtureNow.Add(-10 * time.Minute)) // #2 closed after #3
+			h := newHarness(t, fx)
+			h.press("s")
 			return h
 		}},
 		{"issue_list_truncated", func(t *testing.T) *harness { return newHarness(t, bigFixture(1204)) }},

@@ -654,6 +654,27 @@ to the loaded count, for example `3 mine · 500 loaded of 1,204` (5.2). The `/`
 text filter matches title, number, labels, assignees and author,
 case-insensitively by substring, against the *effective* issue.
 
+**The closed view's order.** With the state filter on `closed`, the Issues
+view orders its rows by closed time, newest first. GitHub's issue listing
+orders by created, updated or comments only, so this is a derived order over
+the loaded list (`order.go`), computed in `IssueList.Sync` after the `/`
+filter. `open` and `all`, and the PR view, keep GitHub's most-recently-updated
+order. `todos list --state closed` is unchanged.
+
+- `byClosed` compares closed time (an issue without one uses its updated
+  time), then updated time, then the higher number. `closedOrder` is pure.
+- Pages arrive in updated order, so rows move as they land. The selection
+  stays on its issue by number (7.8), on a later page and on refresh.
+- Past the 500-issue cap the order is over the loaded 500, under the existing
+  truncation notice.
+- The time column shows the closed time, and the sub-bar reads
+  `closed ▾ by closed time`.
+- A reopen clears the closed time and bumps the updated time. The view keeps
+  the last closed time it saw for each issue (`IssueList.lastClosed`), so a
+  reopened row stays where it was until it leaves the list at the next
+  refresh, as it does in the other views. Closing it again brings a new
+  closed time, and it sorts by that.
+
 ### 7.5 The board is derived (A5)
 
 `boardMsg` carries `BoardInfo` and the board from **one** request, so they
@@ -2027,6 +2048,13 @@ WithInitialTermSize(w, h))`, `Send`, `Type`, `WaitFor`, `FinalModel`,
   `TestIssueList_labelsBorrowUnusedAssigneeRoom`
 - `TestGolden`, `TestGolden_ansi`, `TestGolden_tooSmall`, `TestE2E_*`
 
+**closed view order**
+- `TestClosedOrder_newestClosedFirstWithFallbacks`
+- `TestClosedOrder_openAndAllKeepGitHubOrder`
+- `TestClosedOrder_selectionFollowsIssueAcrossPagesAndRefresh`
+- `TestClosedOrder_timeColumnShowsClosedTime`
+- `TestClosedOrder_reopenKeepsItsRow`
+
 **theme**
 - `TestTheme_overrideSkipsQuery`
 - `TestTheme_backgroundMsgSwitchesAndMarkdownStyle`
@@ -2035,7 +2063,7 @@ WithInitialTermSize(w, h))`, `Send`, `Type`, `WaitFor`, `FinalModel`,
 
 **goldens** (each at 80×24 and 140×40)
 
-- issue list: loaded, loading, empty, no match, failed, truncated, stale banner, pending markers
+- issue list: loaded, loading, empty, no match, failed, truncated, stale banner, pending markers, closed (by closed time)
 - issue detail
 - PR list, PR list mine
 - PR detail

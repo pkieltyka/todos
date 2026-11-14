@@ -16,6 +16,7 @@ type IssueList struct {
 	filtering              bool
 	rows                   []int
 	height                 int
+	lastClosed             map[int]time.Time // the closed view's last seen closed times (asClosed)
 }
 
 func newIssueList() *IssueList { return &IssueList{} }
@@ -64,10 +65,15 @@ func (s *IssueList) Actions(*Ctx) []Action {
 func (s *IssueList) Sync(c *Ctx) {
 	q := s.filter.String()
 	rows := s.rows[:0:0]
+	var shown []domain.Issue
 	for _, n := range c.Store.Issues.Numbers {
 		if i, ok := c.Issue(n); ok && matches(i, q) {
 			rows = append(rows, n)
+			shown = append(shown, s.asClosed(c, i))
 		}
+	}
+	if c.Store.Issues.Query.State == "closed" {
+		rows = closedOrder(shown) // the selection stays on its issue: reselect is by number
 	}
 	s.rows = rows
 	s.height = s.bodyHeight(c)
@@ -155,13 +161,42 @@ func (s *IssueList) Update(c *Ctx, msg tea.Msg) tea.Cmd {
 func (s *IssueList) SubBar(c *Ctx, w int) string {
 	t := c.Theme
 	l := c.Store.Issues
-	left := " " + t.text().Render(string(l.Query.State)+" ▾") + t.subtle().Render(" · ") +
+	left := " " + t.text().Render(string(l.Query.State)+" ▾") + closedNote(t, l.Query.State) + t.subtle().Render(" · ") +
 		t.muted().Render("mine: "+onOff(l.Query.Mine)) + t.subtle().Render(" · ") + s.filterLabel(c)
 	if l.Err != nil && len(l.Numbers) == 0 {
 		return spread(left, "", w)
 	}
 	return spread(left, t.muted().Render(listCount(l.Phase, len(s.rows), len(l.Numbers), l.Total, l.Truncated,
 		s.filter.String() != "", issueNoun(l.Query)))+" ", w)
+}
+
+// asClosed is the issue as the closed view orders and times it. A reopen
+// clears the closed time and bumps the updated time, which would move the
+// row to the top; the view keeps the last closed time it saw instead, so a
+// reopened issue stays where it was until it leaves the list, as in the open
+// and all views. A new close brings a new closed time and sorts by it.
+func (s *IssueList) asClosed(c *Ctx, i domain.Issue) domain.Issue {
+	if c.Store.Issues.Query.State != "closed" {
+		return i
+	}
+	if s.lastClosed == nil {
+		s.lastClosed = map[int]time.Time{}
+	}
+	if i.ClosedAt != nil {
+		s.lastClosed[i.Number] = *i.ClosedAt
+	} else if t, ok := s.lastClosed[i.Number]; ok {
+		i.ClosedAt = &t
+	}
+	return i
+}
+
+// closedNote says, in the closed view only, that rows are ordered and timed
+// by closed time.
+func closedNote(t Theme, state domain.IssueState) string {
+	if state != "closed" {
+		return ""
+	}
+	return t.muted().Render(" by closed time")
 }
 
 func (s *IssueList) filterLabel(c *Ctx) string {
@@ -171,7 +206,7 @@ func (s *IssueList) filterLabel(c *Ctx) string {
 func (s *IssueList) Cursor(c *Ctx) *tea.Cursor {
 	l := c.Store.Issues
 	t := c.Theme
-	prefix := " " + t.text().Render(string(l.Query.State)+" ▾") + " · " + "mine: " + onOff(l.Query.Mine) + " · /"
+	prefix := " " + t.text().Render(string(l.Query.State)+" ▾") + closedNote(t, l.Query.State) + " · " + "mine: " + onOff(l.Query.Mine) + " · /"
 	return tea.NewCursor(lipgloss.Width(prefix)+len(s.filter.value), c.Frame.SubBar.Y)
 }
 
@@ -196,6 +231,7 @@ func (s *IssueList) View(c *Ctx, area Rect) string {
 	cols := issueColumns(area.W)
 	for r := s.offset; r < len(s.rows) && len(lines) < area.H; r++ {
 		i, _ := c.Issue(s.rows[r])
+		i = s.asClosed(c, i)
 		lines = append(lines, issueRow(c, i, cols, s.rows[r] == s.sel, area.W))
 	}
 	return box(lines, area.W, area.H)
@@ -260,9 +296,9 @@ func issueRow(c *Ctx, i domain.Issue, cols []Placed, sel bool, w int) string {
 			}
 		case ColUpdated:
 			if wide {
-				cell = t.muted().Render(agoLong(c.Now, i.UpdatedAt))
+				cell = t.muted().Render(agoLong(c.Now, listTime(c.Store.Issues.Query.State, i)))
 			} else {
-				cell = t.muted().Render(ago(c.Now, i.UpdatedAt))
+				cell = t.muted().Render(ago(c.Now, listTime(c.Store.Issues.Query.State, i)))
 			}
 		}
 		b.WriteString(fit(cell, col.W))
