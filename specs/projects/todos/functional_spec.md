@@ -157,6 +157,18 @@ A status name matches an option exactly first, then case-insensitively. If two
 options differ only by case and neither matches exactly, that is
 `invalid_input`.
 
+**A board's own automations have the last word.** GitHub projects can be set
+up to act on their own: add every new issue to a column, close an issue whose
+card reaches a "done" column, move a card when its issue closes. These run a
+few seconds after `todos` writes, and `todos` does not fight them: it makes no
+delayed corrective writes and never retries. In practice, on a board that puts
+new issues in a column automatically, a new issue created with "No status"
+usually ends up in that column, and a done item filed as closed by quick add
+may appear in the "done" column even though `todos` did not put it on the
+board. The TUI shows what the board did at its re-read five seconds later.
+Measured on this project's own board: 13 of 16 new "No status" cards were
+moved to Backlog by the board within five seconds.
+
 ### 4.4 Sync (TUI)
 
 - Data loads when the TUI starts. Nothing in the interface waits on the

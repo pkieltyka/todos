@@ -4,20 +4,23 @@ Owner of this file: @pm. Only @pm edits it; ask @pm to add or change items.
 
 ## Now
 
-- [ ] Phase 9: Skill and release readiness — @lead-dev + @frontend-dev — in progress; core half done (see Done); remaining is the TUI half by @frontend-dev: delayed re-read after a create or board change, wording fixes, cosmetic polish, and a live quick add run against the real repository; then final review, last commit, and closing issue 10
+The build is complete; nothing is in progress.
 
-## Polish for Phase 9
+## Known limits and follow-ups
 
-- [ ] A wrapped block quote can leave a short middle line
-- [ ] Long URLs break at a hyphen
-- [ ] A long label truncates at 80 columns in the issue list
-- [ ] Blank rows under the more line on the board
-- [ ] The browser opener may print over the TUI
-- [ ] Assignee and label pickers in the TUI must also list values the issue currently has even when the repository no longer lists them, so they can be removed
-- [ ] A joint dogfood of real writes through the TUI is still to do once Phases 7 and 8 are in
+- [ ] The pull request detail view has never been run against real data: the repository has no pull requests and nothing has been pushed
+- [ ] `go install` by module path works only after the repository is renamed from `playg` to `todos`
+- [ ] Long URLs in rendered Markdown break at a hyphen
+- [ ] A board's own automations have the last word: on this board, a new issue created with No status usually ends up in Backlog
+- [ ] Detection of the board auto-add rejection depends on the wording of GitHub's error message
+- [ ] Nothing has been pushed and no pull request has been opened
 
 ## Done
 
+- [x] Phase 9: Skill and release readiness — @lead-dev + @frontend-dev — done; all nine phases are committed on branch `todos-v1`, the last code commit being `c504e3f`
+- [x] No status fix — committed as `c504e3f`
+- [x] Phase 9 TUI half, with the board focus fix — @frontend-dev — committed as `c8b6b23`
+- [x] Board auto-add race fix — committed as `0512fbc`
 - [x] Phase 7: Quick add, core — @lead-dev — done; reviewed by @reviewer with no defects, committed as `a28c1e7`
 - [x] Phase 8: Quick add, TUI — @frontend-dev — done; reviewed by @reviewer, committed as `db13c8f`
 - [x] Phase 9 core half: agent skill, README, version and cleanup — @lead-dev — done; reviewed with no defects, committed as `38c4888`
@@ -36,27 +39,24 @@ Owner of this file: @pm. Only @pm edits it; ask @pm to add or change items.
 
 ## Decisions and facts
 
-- Repo `pkieltyka/playg` exists on GitHub, issues enabled, 0 issues.
+- Repo `pkieltyka/playg` exists on GitHub, issues enabled.
 - gh version: 2.103.3.
 - UI libraries: `charm.land/bubbletea/v2` v2.1.1, `charm.land/lipgloss/v2` v2.1.0, `charm.land/bubbles/v2` v2.2.1.
 - @cto is the only one who commits.
 - Peter asked that the team does not ask him questions; @cto decides and reports.
 - Work happens on branch `todos-v1`; nothing is pushed.
 - Each phase: developer, `make check`, @reviewer, fixes, @cto review and commit.
+- When two phases finish together, the developers cross-review each other in addition to @reviewer.
 - The shared test fake is a direct in-memory implementation in `internal/service/servicetest`.
 - Reviews of code go into the `reviews/` folder, which git ignores.
 - Commits are made by path, so one track's unfinished work never lands in the other's commit.
-- Our backlog now also lives as GitHub issues 1–14 on `pkieltyka/playg` and its project board, created for dogfooding.
-- Nothing has been pushed, so the pull request views can only be checked against test data for now.
-- When two phases finish together, the developers cross-review each other in addition to @reviewer.
+- 68 throwaway issues, numbers 15 to 82, were created and deleted during live testing; issues 1 to 14 are the real backlog, and issue 10 is being closed last.
 - The project board has a GitHub workflow that closes an issue when its card moves to Done — expected behaviour.
-- At the end of Phase 5, @lead-dev uses the `todos` binary itself to close issues 5, 11 and 12 and move issue 6 to In progress.
-- @lead-dev's session was compacted at the Phase 4 boundary.
 - Removing an assignee or label is judged against the issue itself, so a person who left the organisation can still be unassigned.
-- All eight feature phases are committed.
-- A local build reports the version control stamp as its version; `go install` by module path works only after the repository is renamed from `playg` to `todos`.
-- The pull request detail view has never been exercised against real data: the repository has no pull requests and nothing has been pushed.
-- Decisions from Peter:
+- All nine phases are committed on branch `todos-v1`; the last code commit is `c504e3f`.
+- A local build reports the version control stamp as its version.
+- @lead-dev's session was compacted at the Phase 4 boundary.
+- Product and design decisions (Peter and @cto):
   - One repo and one board per run.
   - The board shows issue cards only and moves them between Status columns.
   - Pull requests are a separate read-only view.

@@ -53,7 +53,7 @@ diff, the developer fixes what is found, @cto reviews and commits. @pm updates
   executor with pacing and stop rules, the draft store, `todos quick-add`.
 - [x] **Phase 8: Quick add, TUI** (TUI; parallel with Phase 7). Write, preview,
   progress and stopped steps; draft persistence and recovery.
-- [ ] **Phase 9: Skill and release readiness** (both). `SKILL.md` and
+- [x] **Phase 9: Skill and release readiness** (both). `SKILL.md` and
   `TestSkillMatchesCLI`; README; opt-in live tests; a full dogfood pass of
   every command and every TUI action against the real repository; remove
   `internal/tools/deps.go`; polish.
