@@ -22,6 +22,7 @@ const (
 type scroller struct {
 	vp      viewport.Model
 	anchors []int
+	blocks  commentBlocks
 	last    syncSig
 	synced  bool
 }
@@ -111,13 +112,13 @@ func detailBody(c *Ctx, src string, cw int) []string {
 	if strings.TrimSpace(src) == "" {
 		return []string{"", "  " + c.Theme.muted().Render("No description.")}
 	}
-	return append([]string{""}, indent(c.Markdown(src, mdWidth(cw)))...)
+	return append([]string{""}, indent(c.markdownKept(src, mdWidth(cw)))...)
 }
 
 // commentLines appends the comments block: rule per comment, then the render.
 // A failed comments request says so, with the fix, even when the body loaded
 // (findings 5 and 10).
-func commentLines(c *Ctx, out []string, anchors []int, comments []domain.Comment, phase LoadPhase,
+func commentLines(c *Ctx, blocks *commentBlocks, out []string, anchors []int, comments []domain.Comment, phase LoadPhase,
 	total int, cerr *domain.Error, w int, kind string) ([]string, []int) {
 	t := c.Theme
 	if cerr != nil {
@@ -129,12 +130,13 @@ func commentLines(c *Ctx, out []string, anchors []int, comments []domain.Comment
 	if phase != PhaseComplete && len(comments) == 0 && cerr == nil {
 		return append(out, "", "  "+t.muted().Render(c.Spin+" Loading comments…")), anchors
 	}
+	blocks.begin()
 	for _, cm := range comments {
 		out = append(out, "")
 		anchors = append(anchors, len(out))
-		out = append(out, rule(t, author(cm.Author)+" · "+agoPhrase(c.Now, cm.CreatedAt), w))
-		out = append(out, indent(c.Markdown(cm.Body, mdWidth(w)))...)
+		out = append(out, blocks.get(t, author(cm.Author)+" · "+agoPhrase(c.Now, cm.CreatedAt), c.markdownKept(cm.Body, mdWidth(w)), w)...)
 	}
+	blocks.end()
 	if phase == PhaseBackground {
 		out = append(out, "", "  "+t.muted().Render(c.Spin+" Loading comments…"))
 	}
@@ -142,6 +144,38 @@ func commentLines(c *Ctx, out []string, anchors []int, comments []domain.Comment
 		out = append(out, "", "  "+t.muted().Render(fmt.Sprintf("Showing %d of %s comments. o opens the %s in the browser.", commentsCap, itoa(total), kind)))
 	}
 	return out, anchors
+}
+
+// commentBlocks keeps each comment's drawn lines (its header rule and its
+// indented Markdown) between rebuilds. A detail screen rebuilds on every
+// comment page and every render batch that lands, which is about 45 times
+// while 500 comments load; without this each rebuild styled every comment
+// again, so the work grew with the square of the comment count. Entries not
+// used by the latest rebuild are dropped.
+type commentBlocks struct {
+	cur, next map[commentBlockKey][]string
+	built     int // blocks drawn from scratch; tests read it
+}
+
+type commentBlockKey struct {
+	head, md            string // the header label and the Markdown as drawn now
+	w                   int
+	dark, dimmed, plain bool
+}
+
+func (b *commentBlocks) begin() { b.next = make(map[commentBlockKey][]string, len(b.cur)) }
+func (b *commentBlocks) end()   { b.cur, b.next = b.next, nil }
+
+// get returns the comment's lines; callers copy them out and never change them.
+func (b *commentBlocks) get(t Theme, head, md string, w int) []string {
+	k := commentBlockKey{head: head, md: md, w: w, dark: t.Dark, dimmed: t.dimmed, plain: t.plain}
+	lines, ok := b.cur[k]
+	if !ok {
+		lines = append([]string{rule(t, head, w)}, indent(md)...)
+		b.built++
+	}
+	b.next[k] = lines
+	return lines
 }
 
 // detailLayout splits the body for a detail screen: the head lines above the
@@ -298,7 +332,7 @@ func (s *IssueDetail) Sync(c *Ctx) {
 	}
 	var anchors []int
 	if d != nil && d.Loaded {
-		body, anchors = commentLines(c, body, anchors, d.Comments, d.CommentsPhase, d.CommentsTotal, d.CommentsErr, cw, "issue")
+		body, anchors = commentLines(c, &s.blocks, body, anchors, d.Comments, d.CommentsPhase, d.CommentsTotal, d.CommentsErr, cw, "issue")
 	}
 
 	if wide {
@@ -462,7 +496,7 @@ func (s *PRDetail) Sync(c *Ctx) {
 	}
 	var anchors []int
 	if d.Detail != nil {
-		body, anchors = commentLines(c, body, anchors, d.Comments, d.CommentsPhase, d.CommentsTotal, d.CommentsErr, cw, "pull request")
+		body, anchors = commentLines(c, &s.blocks, body, anchors, d.Comments, d.CommentsPhase, d.CommentsTotal, d.CommentsErr, cw, "pull request")
 	}
 
 	if wide {

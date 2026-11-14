@@ -280,6 +280,24 @@ func (c *Ctx) Markdown(src string, width int) string {
 	return ansi.Wordwrap(markdown.SanitizeBody(src), width, "")
 }
 
+// markdownKept is Markdown for a screen's Sync (it runs inside Update). A
+// render can reach the renderer's cache before its renderedMsg is handled;
+// with more comments than that cache holds (128), later renders can evict it
+// in between, and the comment would drop back to plain text until its
+// message lands, then render again: a flicker, and a second draw. Keeping a
+// cache hit in lastRender, which Update owns, means a comment once drawn
+// rendered stays rendered.
+func (c *Ctx) markdownKept(src string, width int) string {
+	r := c.a.deps.Renderer
+	st := c.Theme.MarkdownStyle()
+	k := r.Key(src, width, st)
+	if out, ok := r.Cached(k); ok {
+		c.a.lastRender[lastKey{k.Hash, st}] = lastOut{width: width, out: out}
+		return out
+	}
+	return c.Markdown(src, width)
+}
+
 // Push opens a screen on the active tab.
 func (c *Ctx) Push(s Screen) { c.a.tabs[c.a.active] = append(c.a.tabs[c.a.active], s) }
 

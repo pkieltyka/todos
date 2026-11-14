@@ -161,10 +161,17 @@ func (h *harness) blocked() int {
 	return n
 }
 
+// settleDeadline only detects a hang: settle returns as soon as everything
+// not held at a gate is done, so a passing test never waits for it. It is
+// generous because one settle can cover a whole load (500 comments, their
+// pages and renders) on a slow, shared CI runner under -race, which once
+// took over 5 s.
+const settleDeadline = 30 * time.Second
+
 // settle runs until nothing is running except calls held at gates.
 func (h *harness) settle() {
 	h.t.Helper()
-	deadline := time.After(5 * time.Second)
+	deadline := time.After(settleDeadline)
 	for h.runningNow() > h.blocked() {
 		select {
 		case m := <-h.msgs:

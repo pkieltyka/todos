@@ -1805,6 +1805,19 @@ The TUI uses `markdown.Renderer` (see `markdown.md`):
 - On resize, the old render stays on screen until `resizeSettledMsg` (100 ms
   debounce), and then the new renders are requested. There is no blank
   flash and no render storm while dragging.
+- A detail screen rebuilds its content on every comment page and every render
+  batch that lands: about 45 times while 500 comments load. The rebuild
+  reuses each comment's drawn lines (`commentBlocks`, keyed by the header
+  label, the Markdown as drawn now, width and theme), so a comment is styled
+  once per version, not once per rebuild. Entries not used by the latest
+  rebuild are dropped. What each rebuild still costs is the viewport
+  measuring every line (`SetContentLines`), bounded by the 500-comment cap.
+- A render reaches the renderer's 128-entry cache before its `renderedMsg` is
+  handled, and later renders can evict it in between. The detail screens read
+  Markdown through `Ctx.markdownKept`, which copies a cache hit into
+  `lastRender`, so a comment once drawn rendered never drops back to plain
+  text while the rest load. `Ctx.Markdown` itself stays read-only, because the
+  editor preview calls it from `View`.
 - Titles, label names, logins, branch and project names pass through
   `markdown.SanitizeLine` when they enter the store (`Put`, page handlers).
   Everything drawn is therefore clean.
@@ -1842,6 +1855,9 @@ which is authoritative.
    `h := newHarness(t, fixture)` runs every returned Cmd in its own goroutine
    and feeds the messages back in arrival order. `h.settle()` waits until no
    Cmd is running except those held at a gate. No `tea.Program`, no sleeps.
+   `settleDeadline` (30 s) only detects a hang. A passing test never waits for
+   it, and one settle can cover a whole 500-comment load on a slow, shared CI
+   runner under `-race`.
 3. **Golden renders:** `App.View().Content` at 80×24 and 140×40, with
    `golden.RequireEqual` from x/exp/golden v0.1.0, which has an `-update`
    flag *(read)*.
@@ -1905,6 +1921,8 @@ WithInitialTermSize(w, h))`, `Send`, `Type`, `WaitFor`, `FinalModel`,
 - `TestPRs_mineIsLocal_showsMatchAndLoadedCounts`
 - `TestBoard_mineIsLocal`
 - `TestDetail_bodyBeforeComments_commentsCappedAt500`
+- `TestDetail_commentBlocksDrawnOncePerVersion`
+- `TestDetail_commentBlocksRedrawWhenTheirHeaderChanges`
 - `TestDetail_popCancelsSlots`
 - `TestPending_popKeepsHeldIssueRead`
 - `TestReselect_keepsNumber`
