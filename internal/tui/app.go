@@ -121,6 +121,7 @@ type App struct {
 	pending *PendingSet
 	formSeq uint64
 	writes  map[string]*formWrite // form writes in flight (create, edit, comment, delete)
+	rr      rereads               // delayed re-reads after creates and board changes (reread.go)
 	drafts  draftQueue            // quick-add draft saves, one at a time
 	runSeq  uint64
 	later   []tea.Cmd // commands produced while handling a message, run after it
@@ -166,6 +167,7 @@ func New(deps Deps, opts Options) *App {
 		inflight:   make(map[Slot]*Request),
 		pending:    newPendingSet(),
 		writes:     map[string]*formWrite{},
+		rr:         rereads{due: map[int]uint64{}},
 		active:     opts.StartView,
 		rendering:  make(map[markdown.Key]bool),
 		lastRender: make(map[lastKey]lastOut),
@@ -379,7 +381,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	return a, tea.Batch(cmd, a.requestRenders(), a.spinCmd())
+	return a, tea.Batch(cmd, a.requestRenders(), a.spinCmd(), a.flushRereads())
 }
 
 func (a *App) update(msg tea.Msg) tea.Cmd {
@@ -468,6 +470,8 @@ func (a *App) update(msg tea.Msg) tea.Cmd {
 		return a.onRecovered(m)
 	case changeDoneMsg:
 		return a.onChangeDone(m)
+	case rereadMsg:
+		return a.onReread(m)
 	case labelsMsg, usersMsg:
 		a.onMeta(msg)
 		return nil
@@ -546,6 +550,7 @@ func (a *App) onKey(k tea.KeyPressMsg) tea.Cmd {
 	}
 	if !a.fits {
 		if key.Matches(k, a.keys.Binding(ActQuit)) {
+			a.cancelRereads()
 			return tea.Quit
 		}
 		return nil
@@ -598,19 +603,21 @@ func (a *App) global(act Action) tea.Cmd {
 func (a *App) quit(ctrlC bool) tea.Cmd {
 	if n := len(a.overlays); n > 0 {
 		if c, ok := a.overlays[n-1].(*Confirm); ok && c.quit && ctrlC {
+			a.cancelRereads()
 			return tea.Quit
 		}
 	}
 	n := a.pendingWrites()
 	if n == 0 {
 		a.flushDraftNow()
+		a.cancelRereads()
 		return tea.Quit
 	}
 	what := itoaPlain(n) + " changes"
 	if n == 1 {
 		what = "1 change"
 	}
-	q := newConfirm(what+" still sending. Quit anyway?", func(*Ctx) tea.Cmd { a.flushDraftNow(); return tea.Quit })
+	q := newConfirm(what+" still sending. Quit anyway?", func(*Ctx) tea.Cmd { a.flushDraftNow(); a.cancelRereads(); return tea.Quit })
 	q.quit = true
 	a.pushOverlay(q)
 	return nil
@@ -843,15 +850,38 @@ func (a *App) clockCmd() tea.Cmd {
 
 // ---- spinner ----
 
-// spinCmd keeps one tick chain alive while anything is loading.
+// spinCmd keeps one tick chain alive while anything is loading or a change
+// is being sent: both draw the spinner (UI 5.2).
 func (a *App) spinCmd() tea.Cmd {
-	if a.spinning || len(a.inflight) == 0 {
+	if a.spinning || !a.spinNeeded() {
 		return nil
 	}
 	a.spinning = true
 	a.spinGen++
 	gen := a.spinGen
 	return a.deps.Tick(spinEvery, func(time.Time) tea.Msg { return spinnerTickMsg{gen} })
+}
+
+// spinNeeded reports whether anything on screen may show the spinner: a
+// read in flight, or a change, form write or quick-add run still sending. An
+// uncertain change shows "?" and needs no ticks.
+func (a *App) spinNeeded() bool {
+	if len(a.inflight) > 0 || len(a.writes) > 0 {
+		return true
+	}
+	for _, n := range a.pending.Numbers() {
+		for _, c := range a.pending.Changes(n) {
+			if c.Phase != Uncertain {
+				return true
+			}
+		}
+	}
+	for _, o := range a.overlays {
+		if q, ok := o.(*QuickAdd); ok && q.Busy() {
+			return true
+		}
+	}
+	return false
 }
 
 // ---- rendering ----
@@ -1053,7 +1083,7 @@ func (a *App) syncState(c *Ctx) string {
 	}
 	if err != nil {
 		if has {
-			return t.pending().Render("⚠ stale · " + ago(c.Now, loaded) + " ago")
+			return t.pending().Render("⚠ stale · " + agoPhrase(c.Now, loaded))
 		}
 		if _, ok := a.top(a.active).(*BoardSetup); ok {
 			return ""
@@ -1067,7 +1097,7 @@ func (a *App) syncState(c *Ctx) string {
 	if loaded.IsZero() {
 		return ""
 	}
-	return t.fg(t.Open).Render("●") + t.muted().Render(" synced "+ago(c.Now, loaded)+" ago")
+	return t.fg(t.Open).Render("●") + t.muted().Render(" synced "+agoPhrase(c.Now, loaded))
 }
 
 func (a *App) footer(c *Ctx, s Screen) string {

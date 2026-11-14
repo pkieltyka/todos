@@ -332,7 +332,7 @@ func TestQuickAdd_inFlightSavedBeforeCreate(t *testing.T) {
 func TestQuickAdd_inFlightKeptThroughClosingAndPlacing(t *testing.T) {
 	store := newMemDrafts()
 	h := newHarness(t, richFixture(), withStart(ViewBoard), withDrafts(store))
-	h.press("A")
+	h.press("l", "A") // the Todo column: a named status, placed with BoardAdd
 	h.paste("- Alpha\n")
 	g := h.hold("BoardAdd", 104) // created as #104, placing is held
 	h.press("ctrl+s", "enter")
@@ -457,7 +457,7 @@ func TestQuickAdd_stoppedTextIsRemainingSource_marksUncertainOnly(t *testing.T) 
 
 func TestQuickAdd_bannerNamesNotPlacedAndNotClosed(t *testing.T) {
 	h := newHarness(t, richFixture(), withStart(ViewBoard), withDrafts(newMemDrafts()))
-	h.press("A")
+	h.press("l", "A") // the Todo column: a named status, placed with BoardAdd
 	h.paste("- Alpha\n- Bravo\n")
 	g := h.hold("BoardAdd", 104)
 	h.press("ctrl+s", "enter")

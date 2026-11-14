@@ -199,13 +199,23 @@ var helpGroups = []helpGroup{
 
 // helpPairs are the key labels for paired rows on the help screen.
 var helpPairs = map[Action][2]string{
-	ActDown:        {"j/k ↓/↑", "move"},
-	ActLeft:        {"h/l ←/→", "column"},
-	ActTop:         {"g/G", "top/bottom"},
-	ActHalfDown:    {"ctrl+d/u", "half page"},
-	ActNextComment: {"]/[", "comments"},
-	ActStatusPrev:  {"< >", "move on board"},
-	ActMine:        {"m", "only mine"},
-	ActBrowser:     {"o", "open in browser"},
-	ActViewIssues:  {"1 2 3", "views"},
+	ActDown:         {"j/k ↓/↑", "move"},
+	ActLeft:         {"h/l ←/→", "column"},
+	ActTop:          {"g/G", "top/bottom"},
+	ActHalfDown:     {"ctrl+d/u", "half page"},
+	ActNextComment:  {"]/[", "comments"},
+	ActStatusPrev:   {"< >", "move on board"},
+	ActMine:         {"m", "only mine"},
+	ActBrowser:      {"o", "open in browser"},
+	ActViewIssues:   {"1 2 3", "views"},
+	ActNextView:     {"tab ⇧tab", "next/prev view"},
+	ActNextField:    {"tab ⇧tab", "next/prev field"},
+	ActSubmit:       {"ctrl+s", "submit"},
+	ActDoneItems:    {"d", "done: skip/close"},
+	ActDiscardDraft: {"ctrl+x", "discard draft"},
 }
+
+// writingActions are the keys inside the create and edit forms, the comment
+// form and quick add; the help screens of the issue views list them below
+// the other groups (UI 3.13), since help cannot open while typing.
+var writingActions = []Action{ActSubmit, ActPreview, ActExternalEditor, ActNextField, ActDoneItems, ActDiscardDraft}

@@ -498,6 +498,7 @@ func TestEdit_conflictDetected_overwrite(t *testing.T) {
 	h.fake.Mutate(func(f *servicetest.Fixture) { f.Issues[0].Body = "Someone else's body" })
 	h.press("ctrl+s")
 	h.contains("changed on GitHub since you started editing")
+	h.lacks("Saving…") // live dogfood: the form behind the dialog still said Saving…
 	h.press("o")
 	calls := h.calls("EditIssue")
 	if len(calls) != 1 || calls[0].Args.Edit.Title == nil || *calls[0].Args.Edit.Title != "Fix flaky sync when gh is offline (edited)" || calls[0].Args.Edit.Body != nil {
@@ -937,5 +938,39 @@ func TestPicker_listsIssueValuesTheRepoNoLongerHas(t *testing.T) {
 	}
 	if c := h.calls("UpdateLabels"); len(c) != 1 || !slices.Equal(c[0].Args.Remove, []string{gone}) {
 		t.Fatalf("label calls %+v", c)
+	}
+}
+
+// Live dogfood: the gutter spinner stood still while a change was sending,
+// because the tick chain only ran while a read was loading.
+func TestSpinner_animatesWhileAChangeIsSending(t *testing.T) {
+	h := newHarness(t, richFixture())
+	g := h.hold("Close", 6)
+	h.press("x")
+	before := h.app.spin
+	h.fire(spinnerTickMsg{})
+	h.fire(spinnerTickMsg{})
+	if h.app.spin < before+2 {
+		t.Fatalf("spinner frame %d → %d while #6 is closing", before, h.app.spin)
+	}
+	h.release(g)
+	h.fire(spinnerTickMsg{})
+	if h.app.spinning {
+		t.Fatal("spinner still ticking after the change settled")
+	}
+}
+
+// Live dogfood: after > the focus stayed in the old column, so a second >
+// moved a different card. Focus follows the card (UI 3.5).
+func TestBoard_stepFocusFollowsCard(t *testing.T) {
+	h := newHarness(t, richFixture(), withStart(ViewBoard))
+	h.press(">", ">") // #6: No status → Todo → the next column
+	calls := h.calls("SetStatus")
+	if len(calls) != 2 || calls[0].Args.Number != 6 || calls[1].Args.Number != 6 {
+		t.Fatalf("SetStatus calls %+v, want #6 twice", calls)
+	}
+	b := h.app.top(ViewBoard).(*Board)
+	if b.sel != 6 || !slices.Contains(b.focused().Numbers, 6) {
+		t.Fatalf("focus on #%d in %q, want #6", b.sel, b.focused().Name)
 	}
 }

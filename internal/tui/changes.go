@@ -77,12 +77,19 @@ func (a *App) onChangeDone(m changeDoneMsg) tea.Cmd {
 		a.putIssue(m.res.Issue, m.arrived, false)
 		if c.Patch.Board != nil {
 			a.store.Board.Extra[n] = true
+			a.wantReread(n) // a project workflow may act on the new status
+		} else {
+			a.settled(n)
 		}
 		if s := c.Patch.State; s != nil {
 			if s.Open {
 				cmds = append(cmds, a.toastOK("Reopened #"+itoaPlain(n)))
 			} else {
-				cmds = append(cmds, a.toastOK("Closed #"+itoaPlain(n)+" · x to undo"))
+				how := ""
+				if s.Reason == "not_planned" {
+					how = " as not planned"
+				}
+				cmds = append(cmds, a.toastOK("Closed #"+itoaPlain(n)+how+" · x to undo"))
 			}
 		}
 	case de.Uncertain: // rule 5: hold the queue, re-read by number
@@ -94,6 +101,9 @@ func (a *App) onChangeDone(m changeDoneMsg) tea.Cmd {
 			a.putIssue(*de.Issue, m.arrived, false)
 			if de.Issue.Board != nil {
 				a.store.Board.Extra[n] = true
+			}
+			if c.Patch.Board != nil {
+				a.wantReread(n)
 			}
 		}
 		cmds = append(cmds, a.toastErr(partialText(c.Patch, n, de)))

@@ -296,7 +296,7 @@ var quickAddGoldens = []goldenCase{
 	}},
 	{"quickadd_stopped", func(t *testing.T) *harness {
 		h := newHarness(t, richFixture(), withStart(ViewBoard), withDrafts(newMemDrafts()))
-		h.press("A")
+		h.press("l", "A") // the Todo column: a named status, placed with BoardAdd
 		h.paste("- Alpha\n- Bravo\n")
 		g := h.hold("BoardAdd", 104)
 		h.press("ctrl+s", "enter")

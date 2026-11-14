@@ -384,6 +384,7 @@ func TestRender_quoteLinesKeepTheirPrefix(t *testing.T) {
 						t.Fatal(err)
 					}
 					var text []string
+					var contents []string // each text line's words, for the short-line check
 					for _, l := range strings.Split(out, "\n") {
 						plain := xansi.Strip(l)
 						if strings.TrimSpace(plain) == "" {
@@ -397,6 +398,17 @@ func TestRender_quoteLinesKeepTheirPrefix(t *testing.T) {
 							t.Fatalf("style %d depth %d width %d: line is %d wide", s, depth, w, got)
 						}
 						text = append(text, strings.Fields(strings.ReplaceAll(strings.ReplaceAll(plain, "│", ""), "|", ""))...)
+						if content != "" {
+							contents = append(contents, content)
+						}
+					}
+					// No short middle line (Phase 9): a line is never so short
+					// that the next line's first word would have fitted on it.
+					for k := 0; k+1 < len(contents); k++ {
+						next := strings.Fields(contents[k+1])[0]
+						if xansi.StringWidth(contents[k])+1+xansi.StringWidth(next) <= w-2*depth-2 {
+							t.Fatalf("style %d depth %d width %d: short line %q before %q\n%s", s, depth, w, contents[k], contents[k+1], xansi.Strip(out))
+						}
 					}
 					if strings.Join(text, " ") != strings.Join(words[:n], " ") {
 						t.Fatalf("style %d depth %d width %d: words changed: %q", s, depth, w, strings.Join(text, " "))

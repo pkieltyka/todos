@@ -391,6 +391,7 @@ func (f *IssueForm) onRead(c *Ctx, m formReadMsg) (tea.Cmd, OverlayResult) {
 	if m.detail.Issue.Title == f.orig.Issue.Title && m.detail.Body == f.orig.Body {
 		return f.sendEdit(c), Keep
 	}
+	f.saving = false // nothing is sent while the user decides; overwrite sends (sendEdit)
 	c.a.pushOverlay(newConflict(f.formID, f.number))
 	return nil, Keep
 }

@@ -290,6 +290,7 @@ func (a *App) refreshPickers(kind pickKind, items []PickItem) {
 // it matches the list's query, at the bottom of its board column, selected.
 func (a *App) created(i domain.Issue, arrived time.Time, fromBoard bool) {
 	a.putIssue(i, arrived, false)
+	a.wantReread(i.Number) // a project workflow may add it to the board
 	q := a.store.Issues.Query
 	viewer := ""
 	if s := a.store.Meta.Session; s != nil {

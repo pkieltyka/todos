@@ -264,10 +264,12 @@ func quoteDepth(src string) int {
 
 // repairQuotes fixes a glamour wrapping bug found in dogfooding: inside a
 // blockquote, glamour sometimes hard-wraps the last word of a line onto a
-// line of its own without the "│ " prefix. Such an orphan directly follows a
-// quoted line, so it gets that line's prefix (with its styling, cut from the
-// line itself) and is padded back to width. Narrowing the wrap width does not
-// avoid the bug; repairing the result does.
+// line of its own without the "│ " prefix. Narrowing the wrap width does not
+// avoid the bug; repairing the result does. Giving the orphan its prefix back
+// still left a short middle line ("│ a" between two full lines, Phase 9), so
+// the quoted paragraph around an orphan is reflowed: its lines' text is joined
+// and wrapped again at the width the prefix leaves, each line getting the
+// paragraph's prefix (with its styling, cut from the first line) and padding.
 func repairQuotes(out string, width int) string {
 	lines := strings.Split(out, "\n")
 	for i := 1; i < len(lines); i++ {
@@ -281,20 +283,65 @@ func repairQuotes(out string, width int) string {
 		if pw == 0 || cw >= pw || !hasText(prev) || !hasText(cur) {
 			continue
 		}
-		// The text ends where the plain line's trailing padding starts; the
-		// padding itself may be styled, so it is measured on the plain line.
-		end := xansi.StringWidth(strings.TrimRight(cur, " "))
-		if end-cw > width-pw {
+		if textEnd(cur)-cw > width-pw {
 			continue // not a short orphan; leave glamour's line alone
 		}
-		body := xansi.Cut(lines[i], cw, end)
-		fixed := xansi.Cut(lines[i-1], 0, pw) + body
-		if pad := width - xansi.StringWidth(fixed); pad > 0 {
-			fixed += strings.Repeat(" ", pad)
+		// The paragraph: text lines with the same bars around the orphan,
+		// stopping at a list item, which starts a block of its own.
+		s := i - 1
+		for s > 0 && sameQuoteLine(lines[s-1], pw) && !listItem(xansi.Strip(lines[s]), pw) {
+			s--
 		}
-		lines[i] = fixed
+		e := i + 1
+		for e < len(lines) && sameQuoteLine(lines[e], pw) && !listItem(xansi.Strip(lines[e]), pw) {
+			e++
+		}
+		var parts []string
+		for k := s; k < e; k++ {
+			plain := xansi.Strip(lines[k])
+			from := pw
+			if k == i {
+				from = cw
+			}
+			parts = append(parts, strings.TrimSpace(xansi.Cut(lines[k], from, textEnd(plain))))
+		}
+		prefix := xansi.Cut(lines[s], 0, pw)
+		var flowed []string
+		// Wrapped one cell short of the edge: glamour's own right margin.
+		for _, l := range strings.Split(xansi.Wordwrap(strings.Join(parts, " "), max(1, width-pw-1), ""), "\n") {
+			fixed := prefix + strings.TrimRight(l, " ")
+			if pad := width - xansi.StringWidth(fixed); pad > 0 {
+				fixed += strings.Repeat(" ", pad)
+			}
+			flowed = append(flowed, fixed)
+		}
+		lines = append(lines[:s], append(flowed, lines[e:]...)...)
+		i = s + len(flowed) - 1
 	}
 	return strings.Join(lines, "\n")
+}
+
+// textEnd is where a plain line's text ends and its trailing padding starts;
+// the padding itself may be styled, so it is measured on the plain line.
+func textEnd(plain string) int { return xansi.StringWidth(strings.TrimRight(plain, " ")) }
+
+// sameQuoteLine reports a line with text and exactly pw cells of quote bars.
+func sameQuoteLine(line string, pw int) bool {
+	plain := xansi.Strip(line)
+	return quotePrefixWidth(plain) == pw && hasText(plain)
+}
+
+// listItem reports a quoted line that starts a list item ("• ", "- ", "1. ").
+func listItem(plain string, pw int) bool {
+	rest := strings.TrimLeft(plain[min(len(plain), byteOffset(plain, pw)):], " ")
+	if strings.HasPrefix(rest, "• ") || strings.HasPrefix(rest, "- ") || strings.HasPrefix(rest, "* ") {
+		return true
+	}
+	d := 0
+	for d < len(rest) && rest[d] >= '0' && rest[d] <= '9' {
+		d++
+	}
+	return d > 0 && strings.HasPrefix(rest[d:], ". ")
 }
 
 // hasText reports a line with something besides quote bars and spaces.

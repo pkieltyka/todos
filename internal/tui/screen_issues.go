@@ -216,11 +216,19 @@ func issueColumns(w int) []Placed {
 func issueRow(c *Ctx, i domain.Issue, cols []Placed, sel bool, w int) string {
 	t := c.Theme
 	wide := w >= 120
+	lend, aright := -1, false // labels' borrowed end, and whether the assignee moves right
+	if !wide {
+		lend, aright = borrowForLabels(c, i, cols)
+	}
 	var b strings.Builder
 	x := 0
 	for _, col := range cols {
 		if col.X > x {
 			b.WriteString(strings.Repeat(" ", col.X-x))
+		} else if col.X < x {
+			// the labels borrowed into this column (borrowForLabels)
+			col.W -= x - col.X
+			col.X = x
 		}
 		var cell string
 		switch col.ID {
@@ -234,10 +242,16 @@ func issueRow(c *Ctx, i domain.Issue, cols []Placed, sel bool, w int) string {
 			if wide {
 				cell = labelDots(t, i.Labels)
 			} else {
+				if lend > col.X+col.W {
+					col.W = lend - col.X
+				}
 				cell = labelNames(t, i.Labels, col.W)
 			}
 		case ColAssignees:
 			cell = people(t, i.Assignees)
+			if aright {
+				cell = strings.Repeat(" ", max(0, col.W-lipgloss.Width(cell))) + cell
+			}
 		case ColStatus:
 			if i.Board != nil {
 				cell = t.text().Render(statusName(i.Board.Status))
@@ -259,6 +273,31 @@ func issueRow(c *Ctx, i domain.Issue, cols []Placed, sel bool, w int) string {
 		return t.selected(row)
 	}
 	return row
+}
+
+// borrowForLabels gives the labels the room the assignee column does not use
+// on this row (Phase 9 polish): when the labels are cut and the assignee is
+// narrower than its column, the labels extend into it and the assignee moves
+// to the column's right edge, keeping one space between them. It returns the
+// labels' new end (-1: no change) and whether the assignee moves.
+func borrowForLabels(c *Ctx, i domain.Issue, cols []Placed) (int, bool) {
+	for k := 0; k+1 < len(cols); k++ {
+		lc, ac := cols[k], cols[k+1]
+		if lc.ID != ColLabels || ac.ID != ColAssignees {
+			continue
+		}
+		full := lipgloss.Width(labelNames(c.Theme, i.Labels, 1<<10))
+		if full <= lc.W {
+			return -1, false
+		}
+		slack := ac.W - lipgloss.Width(people(c.Theme, i.Assignees))
+		room := ac.X + slack - 1 - (lc.X + lc.W) // up to one space before the moved assignee
+		if room <= 0 {
+			return -1, false
+		}
+		return lc.X + lc.W + min(full-lc.W, room), true
+	}
+	return -1, false
 }
 
 // ---- shared list helpers ----
@@ -327,7 +366,7 @@ func banner(c *Ctx, err *domain.Error, has bool, loaded time.Time) string {
 	}
 	when := ""
 	if !loaded.IsZero() {
-		when = ". Showing data from " + ago(c.Now, loaded) + " ago"
+		when = ". Showing data from " + agoPhrase(c.Now, loaded)
 	}
 	return fit(" "+c.Theme.pending().Render("⚠ Refresh failed: "+errText(err)+when+" · r retry"), c.Frame.Body.W)
 }

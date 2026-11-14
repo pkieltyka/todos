@@ -159,7 +159,7 @@ func TestIssues_refreshBuildsShadowAndSwaps(t *testing.T) {
 	if !h.app.store.Issues.LoadedAt.Equal(h.now) {
 		t.Fatal("LoadedAt not updated")
 	}
-	h.contains("synced 0s ago")
+	h.contains("synced just now")
 }
 
 func TestIssues_refreshFailureKeepsRowsMarksStale(t *testing.T) {
@@ -606,7 +606,7 @@ func TestSidePanel_notPlannedStateFits(t *testing.T) {
 }
 
 // Dogfood (Phase 4): Bubble Tea redraws only on messages, so a clock tick
-// keeps "synced 12s ago" moving while idle. It is scheduled at start and
+// keeps "synced 2m ago" moving while idle. It is scheduled at start and
 // re-scheduled by every tick.
 func TestClock_ticksKeepRelativeTimesMoving(t *testing.T) {
 	h := newHarness(t, richFixture())
@@ -624,12 +624,12 @@ func TestClock_ticksKeepRelativeTimesMoving(t *testing.T) {
 	if pending() != 1 {
 		t.Fatalf("%d clock ticks scheduled at start", pending())
 	}
-	h.advance(5 * time.Second)
+	h.advance(65 * time.Second)
 	h.fire(clockTickMsg{})
 	if pending() != 1 {
 		t.Fatal("clock tick not re-scheduled")
 	}
-	h.contains("synced 5s ago")
+	h.contains("synced 1m ago")
 }
 
 func (h *harness) pendingClock() int {
@@ -669,9 +669,9 @@ func TestClock_rearmsWhenFitsAgain(t *testing.T) {
 	if n := h.pendingClock(); n != 1 {
 		t.Fatalf("%d clock ticks after another resize", n)
 	}
-	h.advance(3 * time.Second)
+	h.advance(63 * time.Second)
 	h.fire(clockTickMsg{})
-	h.contains("synced 3s ago")
+	h.contains("synced 1m ago")
 	if n := h.pendingClock(); n != 1 {
 		t.Fatalf("%d clock ticks after a tick", n)
 	}

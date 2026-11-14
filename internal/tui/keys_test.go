@@ -254,3 +254,19 @@ func TestIssueList_wideUpdatedFits(t *testing.T) {
 	h.contains("10 months ago")
 	h.lacks("months a…")
 }
+
+// Phase 9 section 4: the help screens of the issue views list the writing
+// keys too (forms, comments, quick add), and shift+tab.
+func TestHelp_listsWritingKeysAndPrevView(t *testing.T) {
+	for _, v := range []ViewID{ViewIssues, ViewBoard} {
+		h := newHarness(t, richFixture(), withStart(v))
+		h.press("?")
+		for _, s := range []string{"quick add", "Writing · forms, comments, quick add", "ctrl+o", "$EDITOR",
+			"ctrl+r", "preview", "done: skip/close", "discard draft", "next/prev view", "next/prev field"} {
+			h.contains(s)
+		}
+	}
+	h := newHarness(t, richFixture(), withStart(ViewPRs))
+	h.press("?")
+	h.lacks("Writing")
+}

@@ -111,6 +111,20 @@ func (s *Board) Sync(c *Ctx) {
 		all[i].Numbers = keep
 	}
 	s.cols = all
+	// Focus follows the focused card (UI 3.5): whenever it is no longer in
+	// the focused column but is in another one, for any reason (a step, a
+	// rejected step snapping back, an uncertain change resolving, a refresh,
+	// the board's own workflow), focus moves to it. Only a card gone from the
+	// board entirely falls back to a neighbour (reselect, below). This is the
+	// wrong-card class of the live #6 mistake and review finding 1.
+	if s.sel != 0 && !s.inColumn(s.focusKey, s.sel) {
+		for _, col := range s.cols {
+			if _, ok := indexOf(col.Numbers, s.sel); ok {
+				s.focusKey = col.Key
+				break
+			}
+		}
+	}
 	// Keep the focused column by its option ID.
 	found := false
 	for i, col := range s.cols {
@@ -134,6 +148,17 @@ func (s *Board) Sync(c *Ctx) {
 		s.prevIdx[f.Key] = i
 	}
 	_, s.colOffset, _ = BoardWindow(c.Frame.Body.W, len(s.cols), s.col, s.colOffset)
+}
+
+// inColumn reports whether card n is in the column with this key.
+func (s *Board) inColumn(key string, n int) bool {
+	for _, col := range s.cols {
+		if col.Key == key {
+			_, ok := indexOf(col.Numbers, n)
+			return ok
+		}
+	}
+	return false
 }
 
 func contains(xs []string, x string) bool {
@@ -175,6 +200,7 @@ func (s *Board) Update(c *Ctx, msg tea.Msg) tea.Cmd {
 		s.col = clamp(s.col+d, 0, len(s.cols)-1)
 		if g := s.focused(); g != nil {
 			s.focusKey = g.Key
+			s.sel = 0 // an empty column has no focused card (Sync would follow the old one back)
 			if len(g.Numbers) > 0 {
 				s.sel = g.Numbers[clamp(s.prevIdx[g.Key], 0, len(g.Numbers)-1)]
 			}
@@ -347,8 +373,13 @@ func (s *Board) column(c *Ctx, col DisplayColumn, focused bool, w, h int) []stri
 		}
 		body = append(body, strings.Repeat(" ", cw+2))
 	}
-	if more := len(col.Numbers) - off - vis; more > 0 && len(body) > 0 {
-		body[len(body)-1] = " " + fit(t.muted().Render("…"+itoa(more)+" more"), cw) + " "
+	// "…N more" sits on the column's last row, so no blank rows hang below it
+	// (Phase 9 polish). The rows above it are the cards and their spacers.
+	if more := len(col.Numbers) - off - vis; more > 0 && inner > 0 {
+		for len(body) < inner {
+			body = append(body, strings.Repeat(" ", cw+2))
+		}
+		body[inner-1] = " " + fit(t.muted().Render("…"+itoa(more)+" more"), cw) + " "
 	}
 	for r := 0; r < inner; r++ {
 		cell := strings.Repeat(" ", cw+2)
@@ -588,7 +619,7 @@ func (s *BoardSetup) pickerLines(c *Ctx, repo string) []string {
 			bar = t.accent().Render("▌")
 		}
 		name := fit(t.text().Render(line(p.Title)+" (#"+itoaPlain(p.Ref.Number)+")"), 22)
-		meta := itoa(p.TotalItems) + " items · updated " + ago(c.Now, p.UpdatedAt) + " ago"
+		meta := itoa(p.TotalItems) + " items · updated " + agoPhrase(c.Now, p.UpdatedAt)
 		if !p.Usable {
 			meta += " · no Status field"
 		}

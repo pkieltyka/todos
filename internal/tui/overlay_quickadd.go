@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"context"
+	"errors"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -504,6 +506,7 @@ func (q *QuickAdd) onProgress(a *App, p domain.QuickAddProgress) {
 // onDone finishes the run: complete closes quick add; a stop returns to the
 // write step with only the items not created (5.5, UI 3.11).
 func (q *QuickAdd) onDone(a *App, m qaDoneMsg) (tea.Cmd, OverlayResult) {
+	asked := q.stopping
 	q.step = qaWrite
 	q.stopping = false
 	res := m.res
@@ -546,7 +549,7 @@ func (q *QuickAdd) onDone(a *App, m qaDoneMsg) (tea.Cmd, OverlayResult) {
 			q.marks = append(q.marks, mayExist{source: src, title: firstLine(src)})
 		}
 	}
-	q.banner = stopBanner(res, m.err, created, notPlaced, notClosed)
+	q.banner = stopBanner(res, m.err, asked, created, notPlaced, notClosed)
 	q.plan = nil
 	return q.save(a), Keep // the rebuilt draft, saved at once
 }
@@ -567,11 +570,13 @@ func createdText(nums []int, skipped int) string {
 
 // stopBanner names why it stopped, what was created, and what was created
 // but not placed or not closed (UI 3.11).
-func stopBanner(res domain.QuickAddResult, err error, created, notPlaced, notClosed []int) []string {
+// asked: the user pressed esc to stop. The real service reports that stop as
+// a cancelled context ("operation interrupted"), which is not a failure.
+func stopBanner(res domain.QuickAddResult, err error, asked bool, created, notPlaced, notClosed []int) []string {
 	var out []string
 	reason := ""
 	if de := toDomainError(err); de != nil {
-		if de.Err != nil && strings.Contains(strings.ToLower(errText(de)), "cancel") {
+		if asked || errors.Is(err, context.Canceled) || (de.Err != nil && strings.Contains(strings.ToLower(errText(de)), "cancel")) {
 			reason = "as you asked"
 		} else {
 			// The service's run error already says "quick add stopped: …".
@@ -787,6 +792,11 @@ func (q *QuickAdd) viewPreview(c *Ctx, body Rect) string {
 				note = t.muted().Render("+ " + itoa(body) + plural(body, " body lines"))
 			}
 		}
+		// An item flagged in the write step keeps its flag here, where enter
+		// sends it: it is never sent again silently (5.5, live dogfood).
+		if !(it.Checked && q.opts.Checked == "skip") && slices.ContainsFunc(q.marks, func(m mayExist) bool { return m.source == it.Source }) {
+			note = t.pending().Render("⚠ may exist: check GitHub before resending")
+		}
 		out = append(out, spread("  "+fit(num, 3)+t.text().Render(line(it.Title)), note+" ", w))
 	}
 	return box(out, w, body.H)
@@ -795,9 +805,11 @@ func (q *QuickAdd) viewPreview(c *Ctx, body Rect) string {
 func (q *QuickAdd) viewRunning(c *Ctx, body Rect) string {
 	t := c.Theme
 	w := body.W
-	doneN := 0
+	// "creating X of N" counts only the issues to create: a skipped done item
+	// is not one of them (live dogfood: "creating 2 of 5" for 4 issues).
+	total, doneN := q.plan.ToCreate, 0
 	for _, r := range q.rows {
-		if r.phase == "settled" {
+		if r.phase == "settled" && r.outcome != "skipped" {
 			doneN++
 		}
 	}
@@ -806,7 +818,7 @@ func (q *QuickAdd) viewRunning(c *Ctx, body Rect) string {
 		right = t.pending().Render("stopping after this item…")
 	}
 	out := []string{
-		spread(" "+t.bold().Render("Quick add")+t.muted().Render(" · creating "+itoa(min(doneN+1, len(q.rows)))+" of "+itoa(len(q.rows))), right+" ", w),
+		spread(" "+t.bold().Render("Quick add")+t.muted().Render(" · creating "+itoa(min(doneN+1, total))+" of "+itoa(total)), right+" ", w),
 		t.subtle().Render(strings.Repeat("─", w)),
 	}
 	for i, it := range q.plan.Items {

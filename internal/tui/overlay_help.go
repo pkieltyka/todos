@@ -119,7 +119,46 @@ func (h *Help) View(c *Ctx, body Rect) (string, Rect) {
 		}
 		table = append(table, b.String())
 	}
+	if h.from == ScreenIssues || h.from == ScreenIssue || h.from == ScreenBoard {
+		table = append(table, h.writing(c, max(1, len(cols)), colW)...)
+	}
 	h.offset = clamp(h.offset, 0, max(0, len(table)-(body.H-len(lines))))
 	lines = append(lines, table[min(h.offset, len(table)):]...)
 	return box(lines, w, body.H), body
+}
+
+// writing lays out the form and quick-add keys under the groups, filling
+// the same columns top to bottom.
+func (h *Help) writing(c *Ctx, ncols, colW int) []string {
+	t := c.Theme
+	var cells []string
+	kw := 0
+	type row struct{ k, d string }
+	var rows []row
+	for _, act := range writingActions {
+		k, d := HelpText(h.from, act, c.Keys)
+		if p, ok := helpPairs[act]; ok {
+			k, d = p[0], p[1]
+		}
+		rows = append(rows, row{k, d})
+		kw = max(kw, lipgloss.Width(k))
+	}
+	for _, r := range rows {
+		cells = append(cells, t.accent().Render(fit(r.k, kw))+"  "+t.text().Render(r.d))
+	}
+	per := (len(cells) + ncols - 1) / ncols
+	out := []string{"", " " + t.bold().Render("Writing · forms, comments, quick add")}
+	for r := 0; r < per; r++ {
+		var b strings.Builder
+		b.WriteString(" ")
+		for k := 0; k < ncols; k++ {
+			cell := ""
+			if i := k*per + r; i < len(cells) {
+				cell = cells[i]
+			}
+			b.WriteString(fit(cell, colW))
+		}
+		out = append(out, b.String())
+	}
+	return out
 }

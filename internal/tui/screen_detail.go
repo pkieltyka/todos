@@ -132,7 +132,7 @@ func commentLines(c *Ctx, out []string, anchors []int, comments []domain.Comment
 	for _, cm := range comments {
 		out = append(out, "")
 		anchors = append(anchors, len(out))
-		out = append(out, rule(t, author(cm.Author)+" · "+ago(c.Now, cm.CreatedAt)+" ago", w))
+		out = append(out, rule(t, author(cm.Author)+" · "+agoPhrase(c.Now, cm.CreatedAt), w))
 		out = append(out, indent(c.Markdown(cm.Body, mdWidth(w)))...)
 	}
 	if phase == PhaseBackground {
@@ -341,7 +341,7 @@ func (s *IssueDetail) Sync(c *Ctx) {
 	} else {
 		s.head = []string{
 			" " + t.bold().Render(i.Title),
-			" " + t.muted().Render(author(i.Author)+" opened "+ago(c.Now, i.CreatedAt)+" ago · updated "+ago(c.Now, i.UpdatedAt)+" ago · "+comments),
+			" " + t.muted().Render(author(i.Author)+" opened "+agoPhrase(c.Now, i.CreatedAt)+" · updated "+agoPhrase(c.Now, i.UpdatedAt)+" · "+comments),
 			" " + t.muted().Render("Assignees ") + assignees + t.muted().Render("  Labels ") + labels +
 				t.muted().Render("  Board ") + board + t.muted().Render("  Milestone ") + milestone,
 			rule(t, "", area.W),
@@ -483,7 +483,7 @@ func (s *PRDetail) Sync(c *Ctx) {
 	} else {
 		s.head = []string{
 			" " + t.bold().Render(p.Title),
-			" " + t.muted().Render(author(p.Author)+" wants to merge "+p.Head+" → "+p.Base+" · updated "+ago(c.Now, p.UpdatedAt)+" ago"),
+			" " + t.muted().Render(author(p.Author)+" wants to merge "+p.Head+" → "+p.Base+" · updated "+agoPhrase(c.Now, p.UpdatedAt)),
 			" " + t.muted().Render("Review ") + rev + t.muted().Render("   Checks ") + chk + t.muted().Render("   Mergeable ") + mergeable,
 		}
 		if closes != "" {

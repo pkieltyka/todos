@@ -56,9 +56,12 @@ internal/tui/
   format.go         times, counts, error texts and hints
   widgets.go        filter input, glyphs, label and people cells, pending markers
   editor.go         Editor: textarea + preview + $EDITOR hand-off (14)
+  draft.go          quick-add draft saves, the run's draft transitions (12)
+  reread.go         the delayed re-read after creates and board changes (8.12)
   screen.go         Screen and Overlay interfaces
   screen_*.go       IssueList, IssueDetail, PRList, PRDetail, Board, BoardSetup
-  overlay_*.go      Help, Picker, IssueForm, CommentForm, Confirm, Conflict, DeleteConfirm
+  overlay_*.go      Help, Picker, IssueForm, CommentForm, Confirm, Conflict,
+                    DeleteConfirm, QuickAdd
 ```
 
 `tui` imports `domain`, `service` and `markdown` (A2). Tests also import
@@ -80,6 +83,8 @@ type Deps struct {
     Env      Env
     Tick     func(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd // tea.Tick; recorded by the harness
     Exec     func(cmd *exec.Cmd, fn tea.ExecCallback) tea.Cmd       // tea.ExecProcess; run directly by the harness
+    Go       func(f func())    // starts the quick-add run goroutine; tracked by the harness (12.4)
+    Send     func(tea.Msg)     // Program.Send, set by Run; nil = stream through a channel (12.4)
 }
 
 type Env struct {
@@ -116,8 +121,9 @@ func (a *App) View() tea.View
   command with `github.com/google/shlex`, which go-gh's `pkg/browser`
   already uses. `cli` also prints a warning on standard error for an invalid
   `TODOS_THEME` value before the TUI starts.
-- `DraftStore` methods are called only from Cmds or the draft writer
-  goroutine, never from `Update`.
+- `DraftStore` methods are called only from Cmds or the quick-add run
+  goroutine, never from `Update`, except the synchronous save on quit
+  (`flushDraftNow`, 12.2).
 - `cli` builds `Deps.Renderer` with
   `markdown.NewRenderer(markdown.Options{BaseURL: "https://HOST/OWNER/REPO"})`
   right after resolving the repository locally (no GitHub read). The first
@@ -125,13 +131,15 @@ func (a *App) View() tea.View
 - `CloseOptions.Reason` is `"completed"` or `"not_planned"`, the internal
   spelling (agreed with @lead-dev).
 
-`Init` returns a batch of these commands:
+`Init` returns a batch of these commands (as built, `app.go` `Init`):
 
-1. `tea.RequestBackgroundColor`, unless `Env.Theme` is set
-2. `Session`
-3. the start view's first load
-4. `BoardInfo`
-5. the first auto-refresh tick
+1. `loadSession`
+2. `loadBoard`: one request that reads BoardInfo, then the board
+3. the first auto-refresh tick (`scheduleAuto`) and the clock tick (`clockCmd`)
+4. `tea.RequestBackgroundColor`, unless the theme is fixed
+5. the start view's first load, for Issues or Pull requests (the board comes
+   from 2)
+6. `spinCmd`, which starts the spinner while those reads are in flight
 
 The first frame draws immediately, with loading states (10).
 
@@ -139,71 +147,90 @@ The first frame draws immediately, with loading states (10).
 
 ## 4. Model tree
 
+As built (`app.go`):
+
 ```
 App
-├── deps, opts
-├── env        size, theme, keys, frame
+├── deps, opts, ctx
+├── width, height, frame, fits        size and the too-small state (4.4)
+├── theme, themeFixed, keys
 ├── store      *Store                 GitHub data (section 7)
-├── pending    *PendingSet            optimistic changes (section 8)
-├── inflight   map[Slot]Request       cancellable reads (section 6.3)
-├── tabs       [3]Stack               Issues, PullRequests, Board
-│   └── Stack  []Screen               list → detail
-├── overlays   []Overlay              modal stack; the top one has focus
-├── toast      *Toast
-├── banners    [3]*Banner             per tab
-├── spinner    spinner.Model          one shared spinner for every ⠋
-├── qa         *QuickAddRun           a live run; survives closing the overlay
-├── draftW     *draftWriter           the single draft writer (section 12.2)
+├── inflight   map[Slot]*Request      cancellable reads (section 6.3)
 ├── reqSeq     ReqID                  increases only
-├── chgSeq     ChangeID               increases only
-└── autoGen    uint64                 auto-refresh generation
+├── tabs       [3][]Screen            Issues, PullRequests, Board; each a stack, list → detail
+├── active     ViewID
+├── overlays   []Overlay              modal stack; the top one has focus
+├── toast, toastSeq                   one footer toast
+├── spin, spinGen, spinning           the shared spinner frame and its tick chain (spinFrames)
+├── autoGen, resizeGen, frozen, clockOn
+├── rendering, lastRender, renderVer  Markdown renders in flight and last outputs (16)
+├── pending    *PendingSet            optimistic changes (section 8); it holds the ChangeID sequence
+├── formSeq    uint64                 form and overlay IDs
+├── writes     map[string]*formWrite  form writes in flight (8.11)
+├── rr         rereads                delayed re-reads (8.12)
+└── drafts     draftQueue             quick-add draft saves, one at a time (12.2)
 ```
+
+There is no per-tab banner field (banners are drawn from the store's errors)
+and no `spinner.Model`. A quick-add run lives in its `QuickAdd` overlay.
 
 ### 4.1 `Ctx`
 
 ```go
 type Ctx struct {
-    Store   *Store         // read-only for screens
-    Pending *PendingSet    // read-only for screens
-    Theme   Theme
-    Keys    Keymap
-    Spinner string         // current spinner frame
-    Now     time.Time
-    Viewer  string         // Session.Viewer.Login
-    Width, Height int
-    do      func(Intent) tea.Cmd
+    a      *App           // unexported: helpers below use it
+    Store  *Store         // read-only for screens
+    Theme  Theme
+    Keys   Keymap
+    Now    time.Time
+    Frame  Frame
+    Spin   string         // current spinner frame
+    Viewer string         // Session.Viewer.Login
+    Repo   domain.RepoRef
 }
 
-func (c *Ctx) Do(i Intent) tea.Cmd
+func (c *Ctx) Issue(n int) (domain.Issue, bool)   // the effective issue (8.11)
+func (c *Ctx) Marks(n int) Marks
+func (c *Ctx) Columns() []DisplayColumn           // the derived board (7.5)
+func (c *Ctx) Push(s Screen)
+func (c *Ctx) Pop()
 ```
 
 `App` builds a `Ctx` for every `Update` and `View`. Screens and overlays
-change their own UI state and return intents through `Ctx.Do`. They never
-call the service and never write the store.
+change their own UI state; to read or write they call App methods through
+`c.a` (`loadIssue`, `issueAction`, `applyChange`, …), never the service and
+never the store directly. There are no `Intent` values (6.1).
 
 ### 4.2 Screens
 
 ```go
 type Screen interface {
     ID() ScreenID
-    Update(c *Ctx, msg tea.Msg) (Screen, tea.Cmd)   // receives ActionMsg, not keys, in nav mode
+    Update(c *Ctx, msg tea.Msg) tea.Cmd             // ActionMsg in nav mode, raw keys in text mode
+    Sync(c *Ctx)                                    // recompute derived state after every Update
     View(c *Ctx, area Rect) string
+    SubBar(c *Ctx, w int) string                    // the line under the tabs
     Actions(c *Ctx) []Action                        // enabled actions, footer priority order
     Mode() InputMode                                // ModeNav, or ModeText while the filter has focus
     Title(c *Ctx) string                            // tea.View.WindowTitle, e.g. "todos · #142"
     Position(c *Ctx) string                         // footer right side: "12/342", "38%"
+    Cursor(c *Ctx) *tea.Cursor                      // real cursor in text mode
     Slots() []Slot                                  // read slots to cancel when popped
+    Renders(c *Ctx) []renderReq                     // Markdown the screen wants rendered (16)
 }
 ```
 
 | Screen | UI state it owns |
 |---|---|
-| `IssueList` | `sel int` (issue number), `prevIndex int`, `offset int`, `filter textinput.Model`, `filtering bool` |
-| `IssueDetail` | `number int`, `vp viewport.Model`, `anchors []int` (line of each comment header), `renderKeys []markdown.Key` |
-| `PRList` | `sel`, `prevIndex`, `offset`, `filter`, `filtering`, `mine bool` (local filter) |
-| `PRDetail` | `number`, `vp`, `anchors`, `renderKeys` |
-| `Board` | `col int` (index into displayed columns), `sel int` (issue number), `colOffset int`, `scroll map[string]int` (per column key), `filter`, `filtering`, `mine bool` (local filter) |
-| `BoardSetup` | `state SetupState` (NoBoard, Several, MissingScope, NoStatusField, Failed), `err *domain.Error`, `cursor` (Several) |
+| `IssueList` | `sel int` (issue number), `prevIndex int`, `offset int`, `filter lineInput`, `filtering bool`, `rows []int`, `height int` |
+| `IssueDetail` | `number int`, `from` (the tab it was opened from, for `‹ Board`), embedded `scroller{vp viewport.Model, anchors []int}` (line of each comment header), `head`, `panel []string` (drawn header and side panel) |
+| `PRList` | `sel`, `prevIndex`, `offset`, `filter`, `filtering`, `mine bool` (local filter), `rows`, `height` |
+| `PRDetail` | `number`, `scroller`, `head`, `panel` |
+| `Board` | `col int` (index into displayed columns), `focusKey string` (the focused column's option ID), `sel int` (issue number), `prevIdx, scroll map[string]int` (per column key), `colOffset int`, `filter`, `filtering`, `mine bool` (local filter), `cols []DisplayColumn`, `total int` |
+| `BoardSetup` | `state, prev SetupState` (NoBoard, Several, MissingScope, NoStatusField, Failed, Choosing), `err *domain.Error`, `projects []domain.Project`, `cursor`, `loading`, `candErr *domain.Error`, `pushed bool` (opened with `P` from the board: `esc` pops back) |
+
+`lineInput` (`widgets.go`) is a small one-line input; bubbles' `textinput` is
+not used.
 
 `SetupState` comes from the `BoardInfo` error:
 
@@ -222,16 +249,17 @@ Keys in BoardSetup:
 
 | State | `P` choose project | `enter` | `r` |
 |---|---|---|---|
-| NoBoard | ✓ opens Picker(Project) from `BoardCandidates` (UI 3.16) | | ✓ |
-| NoStatusField | ✓ opens Picker(Project) (UI 3.16) | | ✓ |
-| Several | | ✓ use the highlighted project (`ChooseBoard`) | ✓ |
+| NoBoard | ✓ switches to Choosing and lists `BoardCandidates` on this screen (UI 3.16) | | ✓ |
+| NoStatusField | ✓ the same | | ✓ |
+| Several, Choosing | ✓ only after the candidate list failed (retry) | ✓ use the highlighted project (`ChooseBoard`) | ✓ |
 | MissingScope | | | ✓ |
 | Failed | | | ✓ |
 
 **Navigation stack.** Each tab has its own stack. `enter` pushes a detail
 screen. `esc` pops it and cancels its `Slots()`, and never quits. Opening an
 issue from the board pushes `IssueDetail` onto the Board tab's stack, so `esc`
-returns to the same card. Switching tabs (`1` `2` `3` `tab` `shift+tab`)
+returns to the same card. From the Board, `P` pushes a
+`BoardSetup(Choosing)`; there is no project picker overlay. Switching tabs (`1` `2` `3` `tab` `shift+tab`)
 keeps every stack.
 
 When `BoardInfo` fails with `no_board`, `missing_scope`, or "no Status
@@ -268,21 +296,22 @@ of the form.
 
 | Overlay | State it owns |
 |---|---|
-| `IssueForm` | `kind` (Create, Edit), `formID`, `number` (edit), `title textinput.Model`, `body editor.Model`, `assignees, labels []string`, `status *string`, `addToBoard bool`, `focus Field`, `orig *domain.IssueDetail` (edit), `dirty bool`, `saving bool`, `err *domain.Error` |
-| `CommentForm` | `formID`, `number`, `body editor.Model`, `sending`, `err` |
-| `Picker` | `kind` (Assignees, Labels, Status, Project), `target PickTarget` (issue number, form, or quick-add batch), `items []PickItem`, `initial, selected map[string]bool`, `cursor`, `filter textinput.Model`, `filtering`, `multi bool`, `max int` |
-| `DeleteConfirm` | `number`, `title`, `input textinput.Model`, `deleting`, `err`, `warn bool` (`!ViewerCanDelete`) |
-| `Confirm` | `kind` (DiscardForm, DiscardDraft, QuitWithWrites, CloseWhileCreating), `onYes Action` |
-| `Conflict` | `formID` |
-| `QuickAdd` | `step` (Write, Preview, Running), `editor editor.Model`, `opts domain.QuickAddOptions`, `plan *domain.QuickAddPlan`, `planSeq`, `planErr`, `marks []LineMark` (may-exist), `banner *StopBanner`, `loaded bool`, `saveOff bool` |
-| `Help` | `vp viewport.Model`, `from ScreenID` |
+| `IssueForm` | `formID`, `edit bool`, `number` (edit), `fromBoard`, `title lineInput`, `body Editor`, `assignees, labels []string`, `status *string`, `addToBoard bool`, `focus formField`, `orig *domain.IssueDetail` (edit: read by the form itself when it opens), `loading`, `saving bool`, `err *domain.Error` |
+| `CommentForm` | `formID`, `number`, `body Editor`, `sending`, `err` |
+| `Picker` | `kind` (Assignees, Labels, Status), `title`, `items []PickItem`, `initial, selected map[string]bool`, `order []string` (initial, in order, 13), `cursor`, `filter lineInput`, `filtering`, `multi bool`, `max int`, `apply func(*Ctx, []string) tea.Cmd` (the opener decides what applying means: an issue change, a form field, or the quick-add batch) |
+| `DeleteConfirm` | `number`, `title`, `input lineInput`, `deleting`, `warn bool` (`!ViewerCanDelete`), `err` |
+| `Confirm` | `text`, `onYes func(*Ctx) tea.Cmd`, `quit bool` (the quit confirmation: a second `ctrl+c` quits at once) |
+| `Conflict` | `formID`, `number` |
+| `QuickAdd` | `step` (Write, Preview, Running), `editor Editor`, `opts domain.QuickAddOptions`, `loaded`, `saveOff`, `loadErr`, `loadWaiting`, `gen`, `marks []mayExist`, `banner []string`, `saveErr`, `plan`, `planErr`, `planSeq`, `planning`, `starting`, `runID`, `stop *atomic.Bool`, `events`, `rows []qaRow`, `stopping` (12) |
+| `Help` | `from ScreenID`, `enabled map[Action]bool`, `offset int` (9.3) |
 
 ### 4.4 The too-small state
 
 This is not a screen. When `ComputeFrame` reports the window is too small,
 `View` returns the too-small text (UI 3.15). `Update` keeps processing every
 message. Keys other than `q` and `ctrl+c` are ignored, data keeps loading,
-and nothing is reset.
+and nothing is reset. As built, `q` there quits at once, without the
+pending-writes question (`app.go` key dispatch).
 
 ---
 
@@ -301,23 +330,23 @@ feed the asOf rule (7.2).
 | `tea.BackgroundColorMsg` | runtime (reply to `tea.RequestBackgroundColor`) | App: `NewTheme(msg.IsDark())` |
 | `tea.KeyPressMsg` | runtime | App: key dispatch (9.2) |
 | `tea.PasteMsg` | runtime (bracketed paste) | the focused text input; ignored in nav mode |
-| `spinner.TickMsg` | `spinner.Model.Tick` | App: advance the spinner. The tick chain runs only while something is pending, loading or busy |
+| `spinnerTickMsg{gen}` | `Deps.Tick(100ms)` from `spinCmd` | App: advance `spin`. The tick chain runs only while a read is loading or a change, form write or quick-add run is sending (`spinNeeded`) |
 
 ### 5.2 Reads
 
 | Message | Sender | Handler |
 |---|---|---|
 | `sessionMsg{req, sent, s domain.Session, err}` | `Service.Session` | App: viewer and repo. On error every tab shows its failed state |
-| `labelsMsg{req, sent, labels, err}` | `Service.Labels` | App → `store.meta`, then any open label picker |
-| `usersMsg{req, sent, users, err}` | `Service.AssignableUsers` | App → `store.meta`, then any open assignee picker |
+| `labelsMsg{labels, err}` | `Service.Labels`, from `loadMeta` (no slot; the service memoises for 60 s) | App → `store.Meta`, then any open label picker |
+| `usersMsg{users, err}` | `Service.AssignableUsers`, from `loadMeta` | App → `store.Meta`, then any open assignee picker |
 | `boardMsg{req, sent, info, board, err}` | one Cmd: `Service.BoardInfo`, then `Service.Board` (and `RefreshMetadata` first on recovery) | App → `store.board`. Setup errors switch the Board stack (4.2). Info and cards always come from the same request (finding 4) |
 | `recoveredMsg{req, sent, s domain.Session, err}` | one Cmd: `Service.RefreshMetadata`, then `Service.Session` | App: store the session, then restart the visible read (7.6, finding 2) |
-| `candidatesMsg{req, sent, res domain.ProjectsResult, err}` | `Service.BoardCandidates` | BoardSetup (Several), Picker(Project) |
+| `candidatesMsg{req, sent, res domain.ProjectsResult, err}` | `Service.BoardCandidates` | BoardSetup (Several, Choosing) |
 | `boardChosenMsg{req, sent, project, err}` | `Service.UseBoard` | App: clear every cached placement, cancel issue and board reads, then reload the board, the issue list and open issue details (finding 3) |
 | `issuesPageMsg{req, sent, q IssueQuery, page, err}` | `Service.ListIssues` | App → `store.issues` (7.3) |
 | `prsPageMsg{req, sent, q PRQuery, page, err}` | `Service.ListPRs` | App → `store.prs` |
-| `boardMsg{req, sent, board, err}` | `Service.Board` | App → `store.board` (7.5) |
-| `issueDetailMsg{req, sent, number, reason, detail, err}` | `Service.GetIssue` | App → store. `reason` = Open, Refresh, Reread (8.6) or Precheck (14.4) |
+| `issueDetailMsg{req, sent, number, reason, detail, err}` | `Service.GetIssue` | App → store. `reason` = Open, Refresh or Reread (8.6, 8.12) |
+| `formReadMsg{req, formID, sent, number, precheck, detail, err}` | `Service.GetIssue` from `formRead`, in `SlotForm` | IssueForm: the body to edit when it opens, or the conflict pre-check (14.4) |
 | `commentsPageMsg{req, sent, kind, number, page, err}` | `Service.ListIssueComments` / `ListPRComments` | App → the detail entry, then the next page up to 500 |
 | `prDetailMsg{req, sent, number, detail, err}` | `Service.GetPR` | App → `store.prDet` |
 
@@ -336,10 +365,10 @@ feed the asOf rule (7.2).
 | Message | Sender | Handler |
 |---|---|---|
 | `draftLoadedMsg{d domain.Draft, ok, err}` | `DraftStore.Load` Cmd | QuickAdd (12.1) |
-| `draftTickMsg{gen}` | `tea.Tick(500ms)` after a keystroke | QuickAdd: hand a copy to the draft writer if `gen` is current |
-| `draftSavedMsg{seq, err}` | draft writer | QuickAdd: the "draft saved" label, or a warning |
+| `draftTickMsg{gen}` | `Deps.Tick(500ms)` after a keystroke | QuickAdd: queue a save if `gen` is current |
+| `draftSavedMsg{err}` | the App's draft queue Cmd (12.2) | App: send the next queued save; start a waiting run or load; warn once on error |
 | `planMsg{seq, plan, err}` | `Service.PlanQuickAdd` | QuickAdd, only if `seq` is current |
-| `qaProgressMsg{runID, p domain.QuickAddProgress}` | run goroutine, through a channel | App → `qa.rows`, store. Re-issues `waitEvent` |
+| `qaProgressMsg{runID, p domain.QuickAddProgress}` | run goroutine, through `Deps.Send` (or a channel and `waitEvent` when `Send` is nil) | QuickAdd → `rows`, store |
 | `qaDoneMsg{runID, res domain.QuickAddResult, err, d domain.Draft}` | run goroutine | App → QuickAdd: finish or stop (12.5) |
 
 ### 5.5 Everything else
@@ -347,7 +376,8 @@ feed the asOf rule (7.2).
 | Message | Sender | Handler |
 |---|---|---|
 | `ActionMsg{a Action}` | App key dispatch | the target screen or overlay (9.2) |
-| `renderedMsg{key markdown.Key, out string, err}` | `Renderer.Render` Cmd | App → the screens or editor holding that key |
+| `renderedMsg{items []rendered}` | one Cmd per batch of up to `renderBatch` = 16 renders | App → the render cache; the screens and editor pick their outputs up by key |
+| `rereadMsg{number, gen}` | `Deps.Tick(5s)` after a create or board change (8.12) | App: re-read the issue if `gen` is current and nothing is pending |
 | `resizeSettledMsg{gen}` | `tea.Tick(100ms)` after a resize | App: request renders at the new width if `gen` is current |
 | `autoRefreshMsg{gen}` | `tea.Tick(60s)` | App (7.7) |
 | `clockTickMsg{}` | `Deps.Tick(1s)`, started by `Init`, re-scheduled by every tick | App: nothing but a redraw. Bubble Tea redraws only on messages, so without it "synced 12s ago" and every relative time froze while idle (dogfood) |
@@ -363,61 +393,48 @@ that prints the URL (UI 9 #3). There is no reply message.
 
 ## 6. From service call to `tea.Cmd`
 
-### 6.1 Intents
+### 6.1 Reads and writes are App methods
 
-```go
-type Intent interface{ intent() }
+*As built:* there are no `Intent` values and no `App.do`. Screens and
+overlays call App methods through `Ctx` (4.1); each method starts its slot
+(6.3), builds the Cmd with `read` or `write`, and has a matching handler:
 
-type LoadReason int // Initial, Refresh, Auto, QueryChanged, Reread, Precheck, Open
+- reads, in `do.go`: `loadSession`, `recover`, `loadBoard(refreshMeta,
+  reason)` (BoardInfo then Board in one request), `loadCandidates`,
+  `chooseBoard`, `loadIssues`, `loadPRs`, `loadIssue` (`GetIssue`, plus the
+  first comments page on Open and Refresh), `issueDetail` (`GetIssue` only, for
+  Reread), `loadPR`, `commentsPage`;
+- metadata: `loadMeta` in `actions.go` (`Labels`, `AssignableUsers`);
+- pending changes: `applyChange` and `sendChange` in `changes.go`;
+- forms: `formRead` (edit load and pre-check), `CreateIssue`, `EditIssue`,
+  `Comment` in `overlay_forms.go`; `Delete` in `overlay_confirm.go`;
+- quick add: `PlanQuickAdd` and `RunQuickAdd` in `overlay_quickadd.go`.
 
-// reads
-type LoadSession  struct{}
-type LoadMeta     struct{ Labels, Users bool }
-type LoadBoard struct{ RefreshMeta bool }               // BoardInfo, then Board, in one request
-type Recover struct{}                                   // RefreshMetadata, then Session (7.6)
-type LoadCandidates struct{}
-type ChooseBoard  struct{ Ref domain.ProjectRef }
-type LoadIssues   struct{ Q IssueQuery; Reason LoadReason }
-type LoadPRs      struct{ Q PRQuery; Reason LoadReason }
-type LoadBoard    struct{ Reason LoadReason }
-type LoadIssue    struct{ Number int; Reason LoadReason } // GetIssue (+ comments when Open/Refresh)
-type LoadPR       struct{ Number int; Reason LoadReason }
-type LoadPlan     struct{ Seq uint64; Text string; Opts domain.QuickAddOptions }
-// writes
-type ApplyChange  struct{ Number int; Patch Patch }
-type CreateIssue  struct{ FormID uint64; New domain.NewIssue }
-type EditIssue    struct{ FormID uint64; Number int; Edit domain.EditIssue }
-type AddComment   struct{ FormID uint64; Number int; Body string }
-type DeleteIssue  struct{ Number int }
-type StartQuickAdd struct{ Plan domain.QuickAddPlan; Draft domain.Draft }
-// local effects
-type OpenURL      struct{ URL string }
-type CopyURL      struct{ URL string }
-type Render       struct{ Key markdown.Key; Src string; Width int; Style markdown.Style }
-```
-
-`App.do(Intent) tea.Cmd` in `do.go` is the only code that calls `Service`.
-The service surface the TUI uses is visible in one file.
+`LoadReason` is Initial, Refresh, Auto, QueryChanged, Open, Reread or
+Precheck (`msgs.go`).
 
 ### 6.2 The Cmd wrappers
 
 ```go
 type ReqID uint64
 
-// read: cancellable, stamped with the time it was sent.
-func read[T any](parent context.Context, clock func() time.Time, id ReqID,
+// start registers a new request in a slot, cancelling the previous one, and
+// returns its ID and a context derived from the program's (6.3).
+func (a *App) start(slot Slot, reason LoadReason) (ReqID, context.Context)
+
+// read: cancellable through the slot's context, stamped with the time it was sent.
+func read[T any](clock func() time.Time, ctx context.Context,
     call func(context.Context) (T, error),
-    wrap func(id ReqID, sent time.Time, v T, err error) tea.Msg,
-) (tea.Cmd, context.CancelFunc) {
-    ctx, cancel := context.WithCancel(parent)
+    wrap func(sent time.Time, v T, err error) tea.Msg,
+) tea.Cmd {
     return func() tea.Msg {
         sent := clock()
         v, err := call(ctx)
-        return wrap(id, sent, v, err)
-    }, cancel
+        return wrap(sent, v, err)
+    }
 }
 
-// write: never cancelled by navigation; stamped with the time the response arrived.
+// write (changes.go): never cancelled by navigation; stamped with the time the response arrived.
 func write[T any](parent context.Context, clock func() time.Time,
     call func(context.Context) (T, error),
     wrap func(arrived time.Time, v T, err error) tea.Msg,
@@ -442,7 +459,9 @@ func write[T any](parent context.Context, clock func() time.Time,
 ### 6.3 Slots: matching results and dropping stale ones
 
 ```go
-type SlotKind int // Session, Recover, Labels, Users, Candidates, Choose, Board, Issues, PRs, Issue, IssueComments, PR, PRComments, Plan
+type SlotKind int // Session, Recover, Form, Candidates, Choose, Board, Issues, PRs, Issue, IssueComments, PR, PRComments
+// Form: a form's own GetIssue (edit load, pre-check). Labels and users have no
+// slot (loadMeta); the quick-add plan is matched by planSeq instead.
 
 type Slot struct { Kind SlotKind; Number int }   // Number is 0 for non-item slots
 
@@ -475,16 +494,16 @@ type Request struct {
 ### 7.1 Structure
 
 ```go
-type Store struct {
+type Store struct {                       // as built (store.go)
     issues  map[int]*IssueEntry           // every issue seen, by number
-    lists   struct {
-        issues ListCache[IssueQuery]       // numbers in display order
-        prs    PRListCache
-    }
-    board   BoardCache
+    prs     map[int]*PREntry              // every PR summary seen
+    Issues  ListCache[IssueQuery]         // numbers in display order
+    PRs     PRListCache
+    Board   BoardCache
     details *lru[int, *DetailEntry]       // 64 entries: body + comments
     prDet   *lru[int, *PRDetailEntry]     // 32 entries
-    meta    Meta                          // labels, users, board info, viewer
+    Meta    Meta                          // session, labels, users
+    version uint64                        // bumped on every change, for redraws
 }
 
 type IssueEntry struct {
@@ -522,10 +541,14 @@ type PREntry struct {
 func (s *Store) PutPR(p domain.PullRequest, asOf time.Time) bool
 
 type BoardCache struct {
+    Extra    map[int]bool                  // placed this session (created there, or a settled board change)
+                                           // and maybe not in Order yet; cleared by every board load
     Info     *domain.BoardInfo             // Project, ordered Status options
+    InfoErr  *domain.Error                 // the setup error (4.2)
     Order    []ColumnOrder                 // A5: board data = ordered numbers per status
     Hidden   int                           // HiddenCount
     Truncated, CardsTruncated bool
+    Loaded   bool
     LoadedAt time.Time
     Err      *domain.Error
 }
@@ -539,6 +562,7 @@ type ColumnOrder struct {                  // one column as the Board call retur
 type DetailEntry struct {
     Body          string
     BodyAsOf      time.Time
+    Loaded        bool
     Comments      []domain.Comment
     CommentsTotal int
     CommentsPhase LoadPhase
@@ -553,10 +577,9 @@ type DetailEntry struct {
 func (s *Store) ClearPlacements(t time.Time)
 
 type Meta struct {
-    Viewer  string
+    Session *domain.Session                // the viewer is Session.Viewer.Login
     Labels  []domain.Label
     Users   []domain.User
-    Session *domain.Session
 }
 ```
 
@@ -644,7 +667,9 @@ new name on the next refresh, with its cards.
 Displayed columns are computed from the store, never from cards:
 
 ```go
-func (s *Store) Columns(p *PendingSet) []DisplayColumn {
+// effective is Ctx.Issue (base with pending changes replayed); extra are the
+// issues with pending changes plus Board.Extra.
+func (s *Store) Columns(effective func(int) (domain.Issue, bool), extra []int) []DisplayColumn {
     // 1. Membership: every issue whose effective placement is on the board.
     //    Candidates are the numbers in Order plus every issue in the store
     //    with a pending board patch.
@@ -667,8 +692,8 @@ func (s *Store) Columns(p *PendingSet) []DisplayColumn {
 - "By ascending number" is the deterministic order for the bottom group. With
   several moves pending, the order inside that group is by number, not by
   when they were moved.
-- `Columns` is memoised per (store version, pending version), so drawing
-  does not re-sort on every frame.
+- `Columns` is not memoised as built: `Ctx.Columns` recomputes it on each
+  call. At 500 cards that has not been measurable.
 
 ### 7.6 Refresh
 
@@ -783,9 +808,10 @@ type Change struct {
 
 type PendingSet struct {
     byIssue  map[int][]*Change   // per issue, in ID order; [0] is the head
-    inFlight int                 // across all issues; at most 4 (A5 rule 2)
+    inFlight map[ChangeID]bool   // across all issues; at most 4 (A5 rule 2)
     ready    []int               // issues whose head is Queued and waiting for a slot, FIFO
-    version  uint64              // bumped on every change, for memoisation
+    seq      ChangeID            // increases only
+    version  uint64              // bumped on every change
 }
 ```
 
@@ -815,12 +841,10 @@ func Apply(i domain.Issue, p Patch, labels []domain.Label) domain.Issue
 func Effective(base domain.Issue, changes []*Change, labels []domain.Label) (domain.Issue, Marks)
 
 type Marks struct {
-    Busy      bool                  // any change Queued or InFlight → gutter ⠋
-    Uncertain bool                  // any change Uncertain → gutter ?
-    Added     map[Field][]string    // drawn in the pending colour with ⠋
-    Removed   map[Field][]string    // drawn struck through
-    State     bool                  // state glyph pending
-    Board     bool                  // card in its new column with ⠋
+    Busy, Uncertain              bool     // any change Queued/InFlight → gutter ⠋; any Uncertain → ?
+    AddedLabels, RemovedLabels   []string // added: pending colour with ⠋; removed: struck through
+    AddedPeople, RemovedPeople   []string
+    State, Board                 bool     // state glyph pending; card in its new column with ⠋
 }
 ```
 
@@ -915,7 +939,8 @@ advance(n): if byIssue[n] is not empty, its new head is Queued → enqueue n in 
   not set). The issue as far as it got becomes the base. The toast says what
   was done.
 - No follow-up re-read after a success: `res.Issue` is GitHub's
-  acknowledgement and becomes the base (A5 rule 3).
+  acknowledgement and becomes the base (A5 rule 3). The one exception is the
+  delayed re-read after a create or a board change (8.12).
 
 ### 8.6 Uncertain changes and the held queue (A5 rule 5)
 
@@ -1027,6 +1052,31 @@ These are not in the log.
   x close  </> move`). The help screen keeps the long ones and sizes each
   group's key column to its widest key.
 
+### 8.12 The delayed re-read (Phase 9)
+
+GitHub project workflows act a few seconds after our write: a new issue is
+auto-added to a column, a card moved to Done gets its issue closed. The live
+dogfood showed both only at the next 60 s refresh. So, as the one exception to
+"no extra read after a successful change":
+
+- After a **create** (form or quick add, `App.created`), a successful **board
+  change** (`SetStatus` or remove-from-board, any `Patch.Board`, also when it
+  ends `partial`), the issue is re-read once, `rereadAfter` = 5 s later, through
+  the normal read path (`issueDetail(n, ReasonReread)`) under the asOf rule.
+- **One timer per issue** (`reread.go`, `App.rr`): `wantReread` queues it and
+  `flushRereads`, run at the end of every `Update`, starts `Deps.Tick(5s) →
+  rereadMsg{n, gen}`. A newer request for the same issue replaces the
+  generation, so the old timer does nothing.
+- **A newer change restarts it:** any other change on the issue that settles
+  successfully while its timer is running or owed starts it again (`settled`).
+- **Skipped while pending:** if the issue has pending changes when the timer
+  fires, nothing is read and the entry stays as owed; the next successful
+  settle on that issue schedules a new timer.
+- A deleted issue's timer finds the issue gone and does nothing. Quitting
+  clears every timer (`cancelRereads`) before `tea.Quit`.
+
+---
+
 ## 9. Keymap
 
 ### 9.1 One source
@@ -1117,7 +1167,7 @@ UI 4 verbatim:
 ```
 App.Update(tea.KeyPressMsg k):
   1. k is ctrl+c → the quit flow (8.8), in any mode
-  2. too small → only q acts
+  2. too small → only q acts, and quits at once (no pending-writes question)
   3. target := top overlay, else the active tab's top screen
   4. if target.Mode() == ModeText:
         forward k to target unchanged. The target handles esc, tab, enter and its
@@ -1125,8 +1175,10 @@ App.Update(tea.KeyPressMsg k):
         return
   5. for each a in target.Actions(ctx): if key.Matches(k, keys.Binding(a)):
         return target.Update(ctx, ActionMsg{a})
-  6. global actions (views, refresh, help, quit), unless an overlay is open
-  7. otherwise ignore
+  6. an overlay is open → forward k raw to it (e.g. a letter that starts a
+     picker's filter)
+  7. global actions (views, refresh, help, quit)
+  8. otherwise ignore
 ```
 
 In navigation mode, screens and overlays receive **actions**, never keys, so
@@ -1139,12 +1191,15 @@ none of them can bind a key the keymap does not know.
 - **Footer:** `target.Actions(ctx)` in priority order, rendered as `key desc`
   pairs with `HelpText`, as many as fit the footer width minus the position
   text (UI 1). When a toast is showing, it replaces them.
-- **Help:** an adapter implementing `help.KeyMap`. `ShortHelp()` is the footer
-  list. `FullHelp()` returns the groups Navigate, Issue actions, and Views &
-  app for the context help was opened from, with that context's group first.
-  It is rendered by `help.Model.FullHelpView` into a viewport (UI 3.13).
-  `help.KeyMap`, `ShortHelpView` and `FullHelpView` are in bubbles v2.2.1
-  `help/help.go` *(read)*.
+- **Help** (`overlay_help.go`, as built): a full-body overlay generated from
+  the keymap, so it cannot drift. It lists every action the screen it was
+  opened from enables, plus the global ones, in the groups Navigate, Issue
+  actions and Views & app (`helpGroups`), one column each; paired keys use
+  `helpPairs` (`j/k ↓/↑`, `< >`, `tab ⇧tab`). On the Issues, Issue and Board
+  screens a **Writing** block follows (`writingActions`): the keys inside the
+  forms, the comment form and quick add (`ctrl+s`, `ctrl+r`, `ctrl+o`, `tab
+  ⇧tab`, `d`, `ctrl+x`), since help cannot open while typing (Phase 9).
+  `j`/`k` scroll; `esc` or `?` close. bubbles' `help.Model` is not used.
 
 ### 9.4 The rule test
 
@@ -1199,6 +1254,7 @@ built as strings exactly `w` cells wide, using `lipgloss.Width` and
 type Col struct {
     ID       ColID
     Min, Max int    // cells; Max 0 = flexible
+    Need     int    // the flexible column's comfortable width (step 4)
     Drop     int    // higher drops first; 0 = never
     MinWidth int    // only shown when the body is at least this wide (0 = always)
 }
@@ -1212,15 +1268,15 @@ func Fit(cols []Col, width int) []Placed
 1. Remove columns whose `MinWidth > width`.
 2. Set every column to `Min` (gaps of 1 included in the total).
 3. While the total exceeds `width`, remove the column with the highest `Drop`.
-4. Give the rest to the flexible column up to what it needs, then grow the
-   others towards `Max` in ascending `Drop` order.
+4. Give the rest to the flexible column up to its `Need`, then grow the
+   others towards `Max` in ascending `Drop` order, and give anything left
+   over to the flexible column.
 
 | Issue list column | Min | Max | Drop | MinWidth |
 |---|---|---|---|---|
-| gutter (`▌`, `⠋`, `?`) | 1 | 1 | 0 | |
-| state glyph | 2 | 2 | 0 | |
+| state: gutter (`▌`, `⠋`, `?`) + glyph | 2 | 2 | 0 | |
 | number | 6 | 7 | 0 | |
-| title | 24 | flex | 0 | |
+| title | 24 | flex, Need 44 | 0 | |
 | updated | 4 | 14 | 2 | |
 | assignees | 10 | 14 | 3 | |
 | labels | 10 | 24 | 4 | |
@@ -1228,18 +1284,24 @@ func Fit(cols []Col, width int) []Placed
 
 | PR list column | Min | Max | Drop | MinWidth |
 |---|---|---|---|---|
-| gutter | 1 | 1 | 0 | |
-| state | 2 | 2 | 0 | |
+| state: gutter + glyph | 2 | 2 | 0 | |
 | number | 6 | 7 | 0 | |
-| title | 24 | flex | 0 | |
+| title | 24 | flex, Need 36 | 0 | |
 | checks | 2 | 9 | 1 | |
 | updated | 4 | 14 | 2 | |
-| review | 10 | 18 | 3 | |
+| review | 10 | 19 | 3 | |
 | branch | 12 | 24 | 4 | |
 | author | 10 | 14 | 5 | 100 |
 
 Cells are truncated with `…`, never wrapped. Review and checks use the short
 forms below 140 columns and words at 140 or more (UI 3.3).
+
+Below 120 columns a row's labels may borrow the room its assignee cell does
+not use (`borrowForLabels`, Phase 9): when the labels are cut and the
+assignee is narrower than its column, the labels extend into it and the
+assignee moves to the column's right edge, one space apart. Relative times
+under a minute read `now` in list cells and `just now` in sentences
+(`agoPhrase`: "synced just now", never "0s ago").
 
 ### 10.3 Detail side panel
 
@@ -1252,8 +1314,10 @@ rendered at `min(content width, 100)` (UI 1).
 
 ```go
 func BoardWindow(bodyW, n, focus, offset int) (colW, first, count int) {
-    colW = clamp((bodyW-1)/max(n, 1), 24, 40)
-    fit := max(1, (bodyW-4)/(colW+1))   // 4 = room for "‹ 2" and "2 ›"
+    // "‹N" and "N›" take 3 cells each, with a one-cell gap between columns:
+    // count*colW + (count-1) + 6 <= bodyW.
+    colW = clamp((bodyW-5)/max(n, 1)-1, 24, 40)
+    fit := max(1, (bodyW-5)/(colW+1))
     count = min(fit, n)
     first = clampWindow(offset, focus, count, n)   // move the window minimally to show focus
     return
@@ -1262,7 +1326,8 @@ func BoardWindow(bodyW, n, focus, offset int) (colW, first, count int) {
 
 At 80 columns this gives 3 columns of 24 (UI 3.5). At 140 it gives 5 of 26.
 A card is 4 rows: 3 lines plus a gap. Each column scrolls by itself to keep
-its selected card visible.
+its selected card visible. When cards are cut, `…N more` is the column's last
+row, so no blank rows hang below it (Phase 9).
 
 ### 10.5 Overlays with lipgloss layers
 
@@ -1310,14 +1375,15 @@ The drawings are in UI 3. This section covers the logic behind them.
 | Screen | Notes |
 |---|---|
 | IssueList | Rows are `lists.issues.Numbers` → `Effective` → local filter. Header and sub-bar states follow UI 3.1 and 5.3. Each empty state (loading, none, no match, failed with hint) is a function of `Phase`, `Err` and filter results. |
-| IssueDetail | One viewport holds the body plus every comment, each rendered separately (`markdown.Key` per body and per comment). `anchors` are recomputed after every render, for `]`/`[`. On open it sends `LoadIssue{Open}`, and if the entry is less than 60 s old it shows it at once. |
+| IssueDetail | One viewport holds the body plus every comment, each rendered separately (`markdown.Key` per body and per comment). `anchors` are recomputed after every render, for `]`/`[`. On open it calls `loadIssue(n, ReasonOpen)`, which always reads; whatever is cached is shown meanwhile. |
 | PRList, PRDetail | Read-only. `m` toggles the local author filter. `Closes` is plain text (UI 9 #9). |
-| Board | Columns from `Store.Columns` (7.5). `<`/`>` use `Info.Options` order. They do nothing on an issue with no effective placement (toast, UI 4). `n` and `A` pass the focused column, with `AddToBoard: true` (8.9, 12.1). `i` shows the hidden-items toast. `P` opens Picker(Project) from `BoardCandidates`. |
-| BoardSetup | NoBoard, MissingScope and NoStatusField show UI 3.16 text with the hint from the error. In NoBoard and NoStatusField, `P` opens the project list from `BoardCandidates` (UI 3.16). If that list fails, the picker leaves its loading state, shows the reason and hint, and `P` tries again (finding 11). Several shows the list from `de.Candidates` (A6), and `enter` sends `ChooseBoard`. `r` runs the recovery of 7.6 in every state. |
+| Board | Columns from `Ctx.Columns` (7.5). `<`/`>` step through `columnStatuses()`: "No status" first, then the columns in `Board.Order`, not `Info.Options`. They do nothing on an issue with no effective placement (toast, UI 4), and focus follows the stepped card (UI 3.5). `n` and `A` pass the focused column, with `AddToBoard: true` (8.9, 12.1). `i` shows the hidden-items toast. `P` pushes `BoardSetup(Choosing)`, which lists `BoardCandidates`. |
+| BoardSetup | NoBoard, MissingScope and NoStatusField show UI 3.16 text with the hint from the error. In NoBoard and NoStatusField, `P` switches the screen to Choosing and lists `BoardCandidates` there (UI 3.16). If that list fails, the screen leaves its loading state, shows the reason and hint, and `P` tries again (finding 11). Several shows the list from `de.Candidates` (A6), and `enter` sends `ChooseBoard`. `r` runs the recovery of 7.6 in every state. |
 
 The status picker (`M`) lists, in this order:
 
-1. every option in `Info.Options` order
+1. every column in `Board.Order` order (`columnStatuses()`, as built; the same
+   order `<`/`>` step through)
 2. `No status`
 3. `Remove from board`, only when the effective issue is on the board
 
@@ -1505,7 +1571,13 @@ The rebuild:
   run and is nil afterwards. `ProgressBarDefault` was read in bubbletea
   v2.1.1. The denominator is all plan items (skipped ones settle at once), not
   `WriteCount`.
-- The running header is `Quick add · creating X of N`, X = settled + 1.
+- The running header is `Quick add · creating X of N`: N is `plan.ToCreate`
+  and X is the settled items that were not skipped, plus one. A skipped done
+  item is not counted (live run: it read `creating 2 of 5` for 4 issues).
+- *Live run (Phase 9):* the preview keeps an item's `⚠ may exist` flag on its
+  row, since that is where `enter` sends it; and a stop the user asked for
+  (`esc`) reads `✗ Quick add stopped as you asked.`, because the real service
+  reports it as `operation interrupted`.
 - `durable` is `runDraft.apply` in `draft.go`. `remaining` calls
   `quickadd.Remaining` (architecture 2 allows `tui → quickadd` for this only)
   with the outcomes so far, items without one counted as unattempted, and adds
@@ -1551,6 +1623,17 @@ On `qaDoneMsg{res, err, d}`, `Update` adopts `d` and turns the saver back on.
   or any printable letter except `j`, `k` and `space` focuses the filter.
   `enter` applies. `esc` clears the filter first, then closes.
 - `initial` is taken from the **effective** issue (8.3).
+- *Dogfood (live) fixes:* the spinner tick chain runs while a read is loading
+  **or** a change, form write or quick-add run is sending (`spinNeeded`);
+  before, a pending change's gutter spinner stood still. On the board, focus
+  follows the focused card (UI 3.5, Phase 9 review finding 1): in every
+  `Sync`, when `sel` is no longer in the focused column but is in another
+  one, for any reason (a step, a rejected step snapping back, an uncertain
+  change resolving, a refresh, the board's workflow), the focus moves to that
+  column. Only a card gone from the board falls back to a neighbour
+  (`reselect`). Moving focus onto an empty column clears `sel`, so the rule
+  does not pull focus back. The edit form clears `saving` while the conflict dialog waits for
+  the user; `o` sends and sets it again.
 - Assignee and label pickers also list, ticked, every initial value the
   repository no longer lists (a departed assignee, a deleted label), after the
   repository's own, so it can be unticked: removal is judged against the issue
@@ -1629,7 +1712,8 @@ editorReadMsg:
 
 ### 14.4 The edit conflict check (4.5)
 
-The form keeps `orig` (the `IssueDetail` it was opened from) and `normBody =
+The form keeps `orig`: the `IssueDetail` the form read itself when it opened
+(`formRead`, in `SlotForm`; not the detail screen's copy), and `normBody =
 normalise(orig.Body)`, where `normalise` turns `\r\n` into `\n`. Bodies edited
 on github.com often contain CRLF, and the textarea holds `\n`.
 
@@ -1639,16 +1723,17 @@ ctrl+s (edit):
   if title != orig.Issue.Title:  edit.Title = &title
   if body  != normBody:          edit.Body  = &body
   if edit is empty: close the form, toast "No changes"
-  saving = true; do(LoadIssue{n, Reason: Precheck})
+  saving = true; formRead(formID, n, precheck = true)
 
-issueDetailMsg{Precheck, current}:
+formReadMsg{precheck, current}:
   (current is also Put into the store as usual)
   if current.Issue.Title == orig.Issue.Title && current.Body == orig.Body:
-      do(EditIssue{formID, n, edit})
+      sendEdit (EditIssue)
   else:
+      saving = false (nothing is sent while the user decides; dogfood)
       push Conflict:  "o overwrite with my version   esc keep editing"
-        o   → do(EditIssue{formID, n, edit})     // same fields; no second check (4.5)
-        esc → pop; saving = false; text kept
+        o   → sendEdit, saving = true             // same fields; no second check (4.5)
+        esc → pop; text kept
   precheck error → inline error; ctrl+s tries again
 ```
 
@@ -1664,13 +1749,11 @@ type Theme struct {
     Dark bool
     Text, Muted, Subtle, Accent, SelectionBg   color.Color
     Open, Done, Inactive, Pending, Error       color.Color
-
-    Title, Meta, Rule, KeyName, KeyDesc          lipgloss.Style
-    TabActive, TabInactive                       lipgloss.Style
-    RowSelected, RowNormal, PendingValue, Removed lipgloss.Style
-    Toast, ToastError, Banner, BannerError       lipgloss.Style
-    BorderFocused, BorderNormal, BorderDanger    lipgloss.Style
+    dimmed bool                                 // under an overlay
+    plain  bool                                 // --no-color: Markdown uses Plain
 }
+// As built, the styles are methods (text(), muted(), accent(), pending(),
+// selected(row), errorS(), …), not lipgloss.Style fields.
 
 func NewTheme(dark bool) Theme                 // UI 6.1 hex values via lipgloss.LightDark(dark)
 func (t Theme) Dimmed() Theme                   // every foreground → Muted, no backgrounds
@@ -1741,16 +1824,19 @@ which is authoritative.
 3. **Golden renders:** `App.View().Content` at 80×24 and 140×40, with
    `golden.RequireEqual` from x/exp/golden v0.1.0, which has an `-update`
    flag *(read)*.
-4. **End-to-end tests with teatest** (4 tests): startup to first frame, `q`,
-   the `ExecProcess` round trip with a fake editor, and quit during a run.
+4. **End-to-end tests with teatest**, as built two (`e2e_test.go`):
+   `TestE2E_startupToFirstFrame` and `TestE2E_qQuits`. The editor round trip
+   and quit during a run are harness tests (`Deps.Exec` runs the editor
+   directly; `TestExternalEditor_roundTrip`, `TestQuit_duringQuickAddRunAsks`).
 
 ### 18.2 Stable goldens
 
 - A fixed clock: `2026-11-13T12:00:00Z`.
 - Spinner frame 0. The tick is not run in golden tests.
-- Two files per golden: `name.txt` (`ansi.Strip`, readable layout diffs) for
-  every case, and `name.ansi` (TrueColor escapes) for one case per screen, in
-  dark and in light.
+- `testdata/TestGolden/<case>/{80x24,140x40}.golden` (`ansi.Strip`, readable
+  layout diffs) for every case, and
+  `testdata/TestGolden_ansi/{issue_list,issue_detail,board}_{dark,light}.golden`
+  (TrueColor escapes) for one case per main screen.
 - Markdown is rendered synchronously through a harness hook, not raced.
 - `TERM`, `COLORTERM`, `NO_COLOR` and `TODOS_THEME` are cleared in `TestMain`.
 - glamour, chroma and lipgloss are pinned (A10). A bump that changes goldens
@@ -1798,7 +1884,8 @@ WithInitialTermSize(w, h))`, `Send`, `Type`, `WaitFor`, `FinalModel`,
 - `TestPRs_mineIsLocal_showsMatchAndLoadedCounts`
 - `TestBoard_mineIsLocal`
 - `TestDetail_bodyBeforeComments_commentsCappedAt500`
-- `TestDetail_popCancelsSlots_exceptHeldReread`
+- `TestDetail_popCancelsSlots`
+- `TestPending_popKeepsHeldIssueRead`
 - `TestReselect_keepsNumber`
 - `TestReselect_goneClampsToIndex`
 - `TestReselect_keepsOffset`
@@ -1877,7 +1964,8 @@ WithInitialTermSize(w, h))`, `Send`, `Type`, `WaitFor`, `FinalModel`,
 - `TestKeymapSameKeySameAction`
 - `TestKeymap_textModeKeysFreeInTextarea`
 - `TestFooter_fromActions_fitsWidth`
-- `TestHelp_listsEveryEnabledAction_contextGroupFirst`
+- `TestHelp_listsEveryEnabledAction`
+- `TestHelp_listsWritingKeysAndPrevView`
 - `TestTextMode_lettersGoToInput`
 - `TestQuit_withPendingAsks`
 - `TestQuit_ctrlcTwiceForces`
@@ -1892,9 +1980,8 @@ WithInitialTermSize(w, h))`, `Send`, `Type`, `WaitFor`, `FinalModel`,
 - `TestAutoRefresh_hiddenTabRefreshesOnSwitchWhenOld`
 
 **editor**
-- `TestPreview_cacheHitShowsImmediately`
-- `TestPreview_dropsStaleRender`
-- `TestExternalEditor_roundTrip` (teatest, fake editor script)
+- `TestPreview_rendersCurrentText`
+- `TestExternalEditor_roundTrip` (harness, fake editor script)
 - `TestExternalEditor_nonZeroExitKeepsBody_removesTemp`
 - `TestExternalEditor_notOfferedWithoutEnv`
 - `TestExternalEditor_argvSplitNoShell`
@@ -1922,7 +2009,23 @@ WithInitialTermSize(w, h))`, `Send`, `Type`, `WaitFor`, `FinalModel`,
 - `TestQuickAdd_stoppedTextIsRemainingSource_marksUncertainOnly`
 - `TestQuickAdd_bannerNamesNotPlacedAndNotClosed`
 - `TestQuickAdd_completeDeletesDraft_toasts`
-- `TestQuickAdd_quitDuringRunLeavesInFlightMark` (teatest)
+- `TestQuit_duringQuickAddRunAsks`, `TestQuickAdd_crashReloadFlagsInFlight`
+  (the in-flight mark is on disk before the create, so quitting leaves it)
+- `TestQuickAdd_preRunFlushFailureSendsNothing`, `TestQuickAdd_reopenWaitsForCloseSave`,
+  `TestQuickAdd_saveErrorShownAgainAfterASuccess`, `TestQuickAdd_inFlightSpanAfterCreatedAndDuplicates`,
+  `TestQuit_confirmedSavesDraft`
+
+**Phase 6–9 additions (as built)**
+- `TestPending_noExtraReadAfterSuccess`, `TestPending_openingDetailOfHeldIssueStillReleases`,
+  `TestPendingSet_holdBlocksNext`
+- `TestWrites_orphanedEditCommentDeleteHandled`, `TestCreate_closedFormStillStoresResult`
+- `TestSpinner_animatesWhileAChangeIsSending`, `TestClock_*`
+- `TestBoard_stepMovesCardOptimistically`, `TestBoard_stepFocusFollowsCard`,
+  `TestBoard_statusPickerRemoveFromBoard`, `TestBoard_moreLineIsLastRow`
+- `TestPicker_listsIssueValuesTheRepoNoLongerHas`
+- `TestReread_*` (8.12), `TestWording_justNowAndNotPlannedToast`,
+  `TestIssueList_labelsBorrowUnusedAssigneeRoom`
+- `TestGolden`, `TestGolden_ansi`, `TestGolden_tooSmall`, `TestE2E_*`
 
 **theme**
 - `TestTheme_overrideSkipsQuery`

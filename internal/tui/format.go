@@ -22,7 +22,7 @@ func ago(now, t time.Time) string {
 	}
 	switch {
 	case d < time.Minute:
-		return fmt.Sprintf("%ds", int(d.Seconds()))
+		return "now" // never "0s" (Phase 9 ruling 2)
 	case d < time.Hour:
 		return fmt.Sprintf("%dm", int(d.Minutes()))
 	case d < 24*time.Hour:
@@ -35,6 +35,15 @@ func ago(now, t time.Time) string {
 		return fmt.Sprintf("%dmo", int(d.Hours()/24/30))
 	}
 	return fmt.Sprintf("%dy", int(d.Hours()/24/365))
+}
+
+// agoPhrase is a relative time inside a sentence: "just now" under a minute,
+// else "5m ago" (Phase 9 ruling 2: never "0s ago").
+func agoPhrase(now, t time.Time) string {
+	if !t.IsZero() && now.Sub(t) < time.Minute {
+		return "just now"
+	}
+	return ago(now, t) + " ago"
 }
 
 // agoLong is the spelled-out form for wide terminals: "3 days ago".

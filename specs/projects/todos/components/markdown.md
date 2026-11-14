@@ -310,10 +310,27 @@ func repairQuotes(out string, width int) string
 
 A text line with fewer quote bars than the text line directly above it is an
 orphan. glamour separates a nested quote from the outer text with a bar-only
-line, so real content never matches. The orphan gets the line above's prefix,
-cut with its styling (`ansi.Cut`), followed by its own text, padded back to
-`width`. It runs only when the source has a blockquote (`quoteDepth`, from
-the same goldmark parse as the `<img>` rewrite).
+line, so real content never matches. It runs only when the source has a
+blockquote (`quoteDepth`, from the same goldmark parse as the `<img>`
+rewrite).
+
+*Phase 9:* giving the orphan its prefix back left a short middle line (`│ a`
+between two full lines). Now the quoted paragraph around the orphan is
+**reflowed**: the text lines with the same bars before and after it (stopping
+at a list item, `• `, `- `, `* ` or `1. `, which is a block of its own) are
+cut after their bars with their styling (`ansi.Cut`), joined with spaces, and
+wrapped again with `ansi.Wordwrap` at `width - bars - 1` (glamour's one-cell
+right margin). Each line gets the paragraph's prefix, cut with its styling
+from the first line, and is padded back to `width`. The test renders a quote
+at every width from 30 to 100, depth 1 and 2, Plain and Dark, and checks the
+bars, the width, the words, and that no line is short enough for the next
+line's first word to have fitted.
+
+Long URLs still break at a hyphen: glamour wraps paragraphs with x/ansi
+`Wrap`, which always treats `-` as a break point. Avoiding it would mean
+changing the visible URL (non-breaking hyphens corrupt a copied URL) or
+re-wrapping glamour's paragraphs ourselves. The OSC 8 hyperlink still carries
+the whole URL, so the link works.
 
 ---
 
