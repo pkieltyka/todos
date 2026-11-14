@@ -8,12 +8,12 @@ The build is complete; nothing is in progress.
 
 ## Known limits and follow-ups
 
-- [ ] The pull request detail view has never been run against real data: the repository has no pull requests and nothing has been pushed
+- [ ] The pull request detail view has never been run against real data: the repository has no pull requests
 - [ ] `go install` by module path works only after the repository is renamed from `playg` to `todos`
 - [ ] Long URLs in rendered Markdown break at a hyphen
 - [ ] A board's own automations have the last word: on this board, a new issue created with No status usually ends up in Backlog
 - [ ] Detection of the board auto-add rejection depends on the wording of GitHub's error message
-- [ ] Nothing has been pushed and no pull request has been opened
+- [ ] No pull request has been opened for branch `todos-v1`
 
 ## Done
 
@@ -44,13 +44,13 @@ The build is complete; nothing is in progress.
 - UI libraries: `charm.land/bubbletea/v2` v2.1.1, `charm.land/lipgloss/v2` v2.1.0, `charm.land/bubbles/v2` v2.2.1.
 - @cto is the only one who commits.
 - Peter asked that the team does not ask him questions; @cto decides and reports.
-- Work happens on branch `todos-v1`; nothing is pushed.
+- Work happens on branch `todos-v1`; the branch is on GitHub, pushed on 2026-11-13 through `07d3ac4` (not by any agent); the team itself never pushes.
 - Each phase: developer, `make check`, @reviewer, fixes, @cto review and commit.
 - When two phases finish together, the developers cross-review each other in addition to @reviewer.
 - The shared test fake is a direct in-memory implementation in `internal/service/servicetest`.
 - Reviews of code go into the `reviews/` folder, which git ignores.
 - Commits are made by path, so one track's unfinished work never lands in the other's commit.
-- 68 throwaway issues, numbers 15 to 82, were created and deleted during live testing; issues 1 to 14 are the real backlog, and issue 10 is being closed last.
+- 68 throwaway issues, numbers 15 to 82, were created and deleted during live testing; issues 1 to 14 are the real backlog, and issue 10 was closed last.
 - The project board has a GitHub workflow that closes an issue when its card moves to Done — expected behaviour.
 - Removing an assignee or label is judged against the issue itself, so a person who left the organisation can still be unassigned.
 - All nine phases are committed on branch `todos-v1`; the last code commit is `c504e3f`.
