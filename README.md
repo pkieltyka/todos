@@ -95,7 +95,8 @@ printf '%s\n' '- Fix login' '- [x] Update docs' | todos quick-add --file - --che
 ```
 
 Checked items skip by default; close files them as completed without requesting
-board placement. A batch status applies only to open items. Creation stops at
+board placement. GitHub project workflows may independently add those issues
+or change their status afterward. A batch status applies only to open items. Creation stops at
 the first failure; retain the accounting document and resend only remaining
 items after checking uncertain outcomes. CLI quick-add creates no draft file.
 

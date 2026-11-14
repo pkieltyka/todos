@@ -99,7 +99,7 @@ func (s *core) CreateIssue(ctx context.Context, in domain.NewIssue) (domain.Chan
 		return change, partial(err, &i, []string{"created"})
 	}
 	if board != nil {
-		change, err = s.placeIssue(ctx, i, *board, in.Status, false)
+		change, err = s.placeIssue(ctx, i, *board, in.Status, false, true)
 		change.Changed = true
 		if err != nil {
 			var completed = []string{"created"}

@@ -92,7 +92,7 @@ func TestFake_QuickAddFailuresAndCallbacks(t *testing.T) {
 				g.Fail(&domain.Error{Kind: domain.ErrForbidden, Message: "denied"})
 			}
 			if where == "place" {
-				g := f.Hold("BoardAdd", 104)
+				g := f.Hold("SetStatus", 104)
 				g.Fail(&domain.Error{Kind: domain.ErrForbidden, Message: "denied"})
 			}
 			run := domain.QuickAddRunOptions{}
@@ -198,5 +198,32 @@ func TestFake_QuickAddSettledSaveFailureRetainsUncertainty(t *testing.T) {
 	de := wantKind(t, e, domain.ErrPartial)
 	if de.Cause != domain.ErrConfig || !de.Uncertain || r.Counts.Uncertain != 1 || r.Items[0].Issue != nil || r.Items[0].Error.Kind != domain.ErrTimeout {
 		t.Fatal(r, e)
+	}
+}
+
+func TestFake_QuickAddNoStatusClearsWorkflowPlacement(t *testing.T) {
+	f := fresh()
+	p, _ := f.PlanQuickAdd(context.Background(), "one", domain.QuickAddOptions{AddToBoard: true})
+	r, e := f.RunQuickAdd(context.Background(), p, domain.QuickAddRunOptions{OnProgress: func(p domain.QuickAddProgress) error {
+		if p.Phase == "placing" {
+			f.Mutate(func(x *servicetest.Fixture) {
+				for j := range x.Issues {
+					if x.Issues[j].Issue.Number == p.Number {
+						x.Issues[j].Issue.Board = &domain.Placement{ItemID: "WORKFLOW", Status: pointer("Todo")}
+					}
+				}
+			})
+		}
+		return nil
+	}})
+	if e != nil || !r.Items[0].OnBoard || r.Items[0].Issue.Board.Status != nil {
+		t.Fatal(r, e)
+	}
+	found := false
+	for _, call := range f.Calls() {
+		found = found || call.Method == "SetStatus" && call.Args.Status == nil
+	}
+	if !found {
+		t.Fatal("No status used preserving BoardAdd")
 	}
 }

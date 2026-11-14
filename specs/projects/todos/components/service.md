@@ -113,7 +113,7 @@ func ParseProjectRef(text string, repo domain.RepoRef) (domain.ProjectRef, error
 - Removals resolve against the fresh issue first: use its AssigneeIDs (canonical login keys) or Label.NodeID, including departed users/deleted labels. Never resolve a present removal ID through repository metadata. For absent names only, validate against repository metadata (refresh once on unknown): known means no-op, unknown means invalid_input. Validate the entire picker delta before any write; additions retain full repository validation.
 - Labels must already exist, matching exact names. Status exact name first, then unique EqualFold match.
 - Reject ambiguous option matches, add/remove overlap, blank title, invalid UTF8 and title>256 code points before writing.
-- Status!=nil implies AddToBoard=true; AddToBoard=true with nil Status is a real No status placement.
+- Status!=nil implies AddToBoard=true; AddToBoard=true with nil Status is a real No status placement. For a newly created issue, always send the explicit clear, even if a workflow already added an unset card or the add response reports null. Existing issues already in No status still use normal no-op semantics.
 
 ## Backend interface
 
@@ -241,7 +241,7 @@ No per-issue lock or service-wide semaphore is introduced. TUI queues provide or
 | Reopen | Already open -> Changed=false; otherwise ReopenIssue. |
 | Delete | Fresh ID then DeleteIssue; faces enforce confirmation. Do not infer success from an ambiguous request's later404. |
 | SetStatus | Validate option or clear, find membership including archived, restore/add if needed, then set/clear. Existing same value -> no-op. |
-| BoardAdd | With status delegates SetStatus. Nil preserves existing active status; archived restores its existing status; genuinely new card is cleared if a project workflow gave it a default. |
+| BoardAdd | With status delegates SetStatus. Nil preserves existing active status; archived restores its existing status; genuinely new card gets an explicit clear even when the add response already has a null status, so a default that raced that response is not silently preserved. |
 | RemoveFromBoard | Remove the selected membership, active or archived; absent is a no-op. |
 
 - `todos unassign ISSUE` reads the current names and passes them as removals; the service freshly reads their issue-owned IDs, so an empty assignable-user list never blocks removing current assignees.
@@ -314,8 +314,9 @@ RunQuickAdd:
 - Progress indexes include skipped rows. Emit settled for skipped rows without writing so every row can be drawn.
 - OnProgress never calls a mutating Service recursively; it persists and sends an immutable TUI message.
 - Pacer is local to RunQuickAdd. Concurrent ordinary actions have no imposed pacing or global semaphore.
-- Create each item through the run-local core with AddToBoard=false and Status=nil; then call Close or BoardAdd/SetStatus as the separate planned step. This makes creating/closing/placing callbacks precede their actual writes and keeps an acknowledged number available before any later failure.
+- Create each item through the run-local core with AddToBoard=false and Status=nil; then call Close or fresh-target placement as the separate planned step. A new item with nil status explicitly clears its field; it must not use the preserving BoardAdd(nil) semantics. This makes creating/closing/placing callbacks precede their actual writes and keeps an acknowledged number available before any later failure.
 - Sequential creation preserves order but other GitHub users/PRs can interleave numbers.
+- Project workflows can independently add checked items or change a status after our acknowledged result. No service polling, delayed corrective writes or mutation retries are introduced; the TUI delayed read displays later GitHub state.
 - GitHub generally allows80 content writes/minute and500/hour; pacing is mitigation, not a quota guarantee. Stop on rate_limited, expose retry timing.
 
 ## Read-only doctor

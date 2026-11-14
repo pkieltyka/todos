@@ -28,7 +28,7 @@ func duplicateProjectItem(err error) bool {
 	var de *domain.Error
 	return errors.As(err, &de) && de.Kind == domain.ErrInvalidInput && !de.Uncertain && strings.Contains(strings.ToLower(de.Message), "content already exists in this project")
 }
-func (s *core) placeIssue(ctx context.Context, i domain.Issue, b domain.BoardInfo, status *string, preserve bool) (domain.Change, error) {
+func (s *core) placeIssue(ctx context.Context, i domain.Issue, b domain.BoardInfo, status *string, preserve, fresh bool) (domain.Change, error) {
 	option, err := statusOption(b, status)
 	if err != nil {
 		return domain.Change{}, err
@@ -79,8 +79,10 @@ func (s *core) placeIssue(ctx context.Context, i domain.Issue, b domain.BoardInf
 	if preserve && !added {
 		return domain.Change{Issue: i, Changed: changed}, nil
 	}
+	// Newly created/added cards need a final explicit clear, even when an
+	// earlier response sampled a null value before a workflow applied its default.
 	same := option == nil && i.Board.Status == nil || option != nil && i.Board.Status != nil && *i.Board.Status == option.Name
-	if same {
+	if same && !(option == nil && (fresh || added)) {
 		return domain.Change{Issue: i, Changed: changed}, nil
 	}
 	if option == nil {
@@ -103,7 +105,7 @@ func (s *core) placeIssue(ctx context.Context, i domain.Issue, b domain.BoardInf
 	}
 	return domain.Change{Issue: i, Changed: true}, nil
 }
-func (s *core) boardChange(ctx context.Context, n int, status *string, preserve bool) (domain.Change, error) {
+func (s *core) boardChange(ctx context.Context, n int, status *string, preserve, fresh bool) (domain.Change, error) {
 	if _, err := s.issueSession(ctx); err != nil {
 		return domain.Change{}, err
 	}
@@ -119,13 +121,13 @@ func (s *core) boardChange(ctx context.Context, n int, status *string, preserve 
 	if err != nil {
 		return domain.Change{}, err
 	}
-	return s.placeIssue(ctx, d.Issue, b, status, preserve)
+	return s.placeIssue(ctx, d.Issue, b, status, preserve, fresh)
 }
 func (s *core) SetStatus(ctx context.Context, n int, status *string) (domain.Change, error) {
-	return s.boardChange(ctx, n, status, false)
+	return s.boardChange(ctx, n, status, false, false)
 }
 func (s *core) BoardAdd(ctx context.Context, n int, status *string) (domain.Change, error) {
-	return s.boardChange(ctx, n, status, status == nil)
+	return s.boardChange(ctx, n, status, status == nil, false)
 }
 func (s *core) RemoveFromBoard(ctx context.Context, n int) (domain.Change, error) {
 	if _, err := s.issueSession(ctx); err != nil {

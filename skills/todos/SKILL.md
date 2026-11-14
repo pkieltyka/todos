@@ -158,6 +158,8 @@ are retained. `@name` and `#123` are literal text, not inline metadata.
 Titles must be nonblank and at most 256 Unicode code points. The cap is 50 items,
 including skipped checked items. Shared assignees, labels and status are
 validated before writes; status applies only to open items, never done items.
+Todos sends no board-add for a done item; GitHub project workflows may still
+add it or change its status independently after the acknowledged result.
 
 Creation is sequential and paced between writes. First failure stops the
 batch; every row remains in the result. A created-but-unclosed or unplaced

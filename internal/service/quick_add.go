@@ -252,7 +252,7 @@ func (s *core) RunQuickAdd(ctx context.Context, plan domain.QuickAddPlan, opts d
 		} else if itemErr == nil && p.Options.AddToBoard {
 			itemErr = quickProgress(opts, j, "placing", *row)
 			if itemErr == nil {
-				change, e := run.BoardAdd(ctx, row.Issue.Number, p.Options.Status)
+				change, e := run.boardChange(ctx, row.Issue.Number, p.Options.Status, false, true)
 				itemErr = e
 				recordQuickIssue(row, change, e)
 			}

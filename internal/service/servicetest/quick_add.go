@@ -188,7 +188,13 @@ func (f *Fake) RunQuickAdd(ctx context.Context, plan domain.QuickAddPlan, opts d
 		} else if itemErr == nil && p.Options.AddToBoard {
 			itemErr = emit(j, "placing")
 			if itemErr == nil {
-				change, e := f.BoardAdd(ctx, r.Issue.Number, p.Options.Status)
+				var change domain.Change
+				var e error
+				if p.Options.Status == nil {
+					change, e = f.SetStatus(ctx, r.Issue.Number, nil)
+				} else {
+					change, e = f.BoardAdd(ctx, r.Issue.Number, p.Options.Status)
+				}
 				itemErr = e
 				fakeQuickIssue(r, change, e)
 			}
