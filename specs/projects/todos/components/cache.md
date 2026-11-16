@@ -89,7 +89,7 @@ the board and the normalised filter. So:
       Put(space, key string, data []byte, readAt time.Time)
       // Epoch returns the space's current write epoch; Bump changes it.
       Epoch(space string) string
-      Bump(space string)
+      Bump(space string) bool // false when the new epoch could not be written
       Drop(space, prefix string)
   }
   ```
@@ -263,6 +263,10 @@ lag, a few seconds.
    its page, in this process or another, and the page is simply never used.
    There are no locks.
 
+   If a bump cannot be written (a read-only directory, a full disk) while
+   older pages are still readable, the service stops using stored content for
+   the rest of the process.
+
    The epoch is per credential, not per repository: a write through `todos`
    invalidates all content cached for that credential. Writes are rare next to
    reads, and a project board can be shared by several repositories.
@@ -315,9 +319,14 @@ lag, a few seconds.
 - Writes are atomic (temporary file in the same directory, then rename).
   Directories are `0700` and files `0600`; an existing directory with wider
   permissions is tightened, and if that fails the cache is not used.
-- Limits: an entry over 4 MB is not stored. At most once per process, on its
-  first write, the store removes files not modified for 24 hours and
-  credential directories not modified for 30 days.
+- Limits: an entry over 4 MB is not stored. At most once a day, recorded in a
+  marker file at the root so that separate commands share it, the store
+  removes files not modified for 24 hours and credential directories not
+  modified for 30 days. Epoch files are never swept.
+- A directory that is not owned by the current user is not used.
+- The structure space is keyed by the repository's canonical name as GitHub
+  returns it, so a repository reached by an old name after a rename shares one
+  entry with its new name.
 - A `readAt` in the future is a miss. Ages are measured on the local clock, so
   a local clock that runs slow stretches every limit by the same amount; the
   file's modification time is never used as evidence of age.
