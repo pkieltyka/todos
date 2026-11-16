@@ -276,11 +276,16 @@ lag, a few seconds.
 4. **Structure that is gone.** When a write fails as not found or as invalid
    input, the service drops its structure entries, so the next command reads
    the truth.
-5. **Asked for.** `domain.WithFresh(ctx)` makes every read under that context
-   skip the memo and the store, read GitHub, and store the result. The CLI
-   sets it for the new global flag `--fresh`. The TUI sets it for a manual
-   refresh, on every page and every structure read of that refresh. `doctor`
-   always sets it, and writes nothing to the cache.
+5. **Asked for.** Fresh is a time, not a flag: `domain.WithFreshSince(ctx, t)`
+   means nothing whose read was sent before `t` may be used. The first
+   structure read of a command then goes to GitHub and the nested reads of the
+   same command reuse it, so asking for fresh never costs more than running
+   with an empty cache. The CLI marks the command's start for the new global
+   flag `--fresh`. The TUI marks the moment `r` was pressed and carries that
+   same moment through every page and structure read of the refresh. `doctor`
+   marks its own start, and reads and writes no cache file.
+   `TODOS_CACHE=off` sets no mark: it only removes the store, and the
+   in-process memo works as it did before the cache existed.
 6. **A different credential.** Section 7.
 
 ## 7. Storage (`internal/cache`)
@@ -367,13 +372,14 @@ earns its keep on large issue lists and on TUIs left open on one.
 
 **Phase 10: structure.** `internal/cache`; `CacheStore`; `CredentialKey`;
 the service's metadata memo made persistent with the times in section 3;
-`WithFresh` honoured by the memo; `--fresh`; `TODOS_CACHE=off`; the `doctor`
+`WithFreshSince` honoured by the memo; `--fresh`; `TODOS_CACHE=off`; the `doctor`
 line.
 
 In the TUI, "fresh" means exactly "the user pressed `r`". A new reason,
 `ReasonManual`, is used only by the `r` key and by recovery from an auth or
-setup error; the read slot wraps its context with `WithFresh` for that reason,
-so every page of the refresh inherits it. Comment pages take the reason of the
+setup error; the read slot wraps its context with `WithFreshSince` and the time
+of the key press for that reason, so every page of the refresh carries the
+same moment. Comment pages take the reason of the
 load that started them. `r` also reloads labels and assignable users, fresh,
 when they are already in the store, so the pickers show GitHub's current
 lists. Automatic refreshes, re-reads, prechecks and a project switch are not
@@ -404,8 +410,10 @@ directory.
 - A read held open across a write, in this store and through a second store on
   the same directory: its page is stored and never used.
 - An uncertain write bumps the epoch. No write is ever sent twice.
-- Fresh with a warm memo and a warm file reads GitHub for every structure value
-  and every page. Expiry is not extended by layering.
+- Fresh with a warm memo and a warm file reads GitHub once for every structure
+  value and for every page, and never twice within one command. `--fresh` and
+  `TODOS_CACHE=off` make no more backend calls than a run with an empty cache.
+  Expiry is not extended by layering.
 - `RefreshMetadata` followed by a file written by "another process" with an
   older stored time: a miss.
 - Probe failure, a refused project half, a missing or unparseable `Date`,
@@ -414,8 +422,8 @@ directory.
 - Unwritable, corrupt, oversized and wrong-version files; an unusable
   directory; `TODOS_CACHE=off`; cancellation stops promptly.
 - `doctor` reads GitHub for everything and creates no file.
-- TUI, fresh: a fake service records `IsFresh` per call. After `r` on each
-  view every call of that refresh is fresh, including later pages and comment
+- TUI, fresh: a fake service records `FreshSince` per call. After `r` on each
+  view every call of that refresh carries the same moment, including later pages and comment
   pages; after an automatic tick, a re-read, a precheck or a project switch,
   none is.
 - TUI, content: a page sent at t1, a detail read sent at t2 > t1 that finishes
