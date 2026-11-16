@@ -524,13 +524,22 @@ Required fixtures:
 
 | Package/files | Contents |
 |---|---|
-| service/service.go, backend.go | Exact interfaces and constructor |
-| service/metadata.go, resolve.go | Session, metadata, board and reference resolution |
-| service/issues.go, board.go | Mutation flows, no-ops, assignment verification |
-| service/quick_add.go, doctor.go | Run-local pacing, phases, read-only diagnostics |
-| quickadd/parse.go, remaining.go | Pure parsing/source reconstruction |
-| config/config.go, drafts.go, atomic.go | Versioned structs and atomic persistence |
-| service/servicetest/fake.go, fixture.go, gates.go, backend.go | Shared fake |
+| service/service.go, backend.go, settings.go, cache.go | Service, Backend, SettingsStore and CacheStore interfaces |
+| service/core.go | Constructor, session, labels/users, memo loading and metadata refresh |
+| service/structure.go, structure_writes.go | Credential/repository cache spaces, persisted metadata and write-refusal invalidation |
+| service/content.go | Probe-validated issue pages, content epochs and write invalidation |
+| service/references.go | Issue and project reference parsing |
+| service/reads.go, board.go | Issue/PR reads and comments; board resolution, candidates, selection and live cards/fields |
+| service/validation.go, changes.go, board_changes.go | Name validation, mutation flows, no-ops, assignment verification and board changes |
+| service/quick_add.go, quick_pace.go, doctor.go | Batch planning/execution, run-local write pacing and read-only diagnostics |
+| service/core_test.go, structure_test.go, content_test.go | Read/metadata fixtures, cache policy, epochs and live board-field tests |
+| service/changes_test.go, board_race_test.go, no_status_test.go, quick_add_test.go | Mutation, workflow-race, explicit-clear and quick-add tests |
+| quickadd/parse.go, remaining.go, parse_test.go | Pure parsing/source reconstruction, table and fuzz tests |
+| config/config.go, drafts.go, atomic.go, config_test.go, drafts_test.go | Settings/draft persistence and its tests |
+| service/servicetest/types.go, fixture.go | Fixture/call argument types, deterministic data and owned copies |
+| service/servicetest/fake.go, gates.go | Direct in-memory Service, call log, mutation hooks and cancellable gates |
+| service/servicetest/reads.go, changes.go, board.go, quick_add.go | Fake reads, issue/board writes and quick-add progress simulation |
+| service/servicetest/fake_test.go, changes_test.go, quick_add_test.go | Shared-fake contract and gate tests |
 
 Dependencies: service/quickadd use standard library only; config pins go.yaml.in/yaml/v3 v3.0.6.
 No x/sys, file-lock package or conflict-token subsystem is added.
@@ -545,12 +554,12 @@ No x/sys, file-lock package or conflict-token subsystem is added.
 | Board writes | TestMove_AbsentAddThenSet, TestMove_ArchivedRestoreThenSet, TestBoardAdd_ExistingStatusPreserved, TestBoardAdd_NewDefaultStatusCleared, TestRestoreFailurePartialAddedToBoard, TestRemove_AbsentNoOp, TestRead_NeverUnarchives |
 | Parser | TestParse_AllPrefixes, TestParse_CheckboxCasesAndLiteralShortcuts, TestParse_IndentAndNestedBody, TestParse_BlankLinesAndCRLF, TestParse_OrphanAndOneSpaceIndent, TestParse_Unicode256AndEmptyTitle, TestParse_51IncludingSkipped, TestParse_LongBodyLine, TestParse_DuplicateTitles, FuzzParse_SourceSpansDeterminism |
 | Quick add | TestQuickAdd_DryRunPlannedCounts, TestQuickAdd_CheckedSkipOrCloseNoBoard, TestQuickAdd_AddToBoardNoStatus, TestQuickAdd_PerWriteOneSecondRunLocal, TestQuickAdd_OrdinaryWritesUnpaced, TestQuickAdd_StopFinishesItem, TestQuickAdd_ContextInterruptAccountsAll, TestQuickAdd_OnProgressSaveFailureStops, TestQuickAdd_FirstUnknownPartial7, TestQuickAdd_PostCreateFailureStaysCreated, TestQuickAdd_RemainingVerbatim |
-| Doctor | TestDoctor_NeverWrites, TestDoctor_AlwaysSixRows, TestDoctor_FirstThreeDetermineVerdict, TestDoctor_ConfigWarningIndependentOfBoard |
+| Doctor | TestDoctor_NeverWrites, TestDoctor_AlwaysSevenRows, TestDoctor_FirstThreeDetermineVerdict, TestDoctor_ConfigWarningIndependentOfBoard |
 | Config | TestConfig_Missing, TestConfig_ReadParseFailureEmptyButNeverOverwritten, TestConfig_UnknownTopLevelInlineMap, TestConfig_AtomicFailurePreservesOriginal, TestConfig_LastSaveWins, TestPaths_XDGMacAndFallback |
 | Drafts | TestDraft_PrivateAtomicRoundTrip, TestDraft_UnparseableNeverOverwrite, TestDraft_InFlightReloadUncertain, TestDraft_RemainingOffsets, TestDraft_ConcurrentProcessesLastSaveWins |
 | Shared fake | TestFake_GateReleaseFailureAndCancel, TestFake_ApplyThenFailChangesFixture, TestFake_ArgumentsAndCallOrderOwned, TestFake_MutateExternalEdit, TestFake_RateSnapshot, TestFake_QuickAddPhasesAndItemGates, TestFake_DefaultFixtureTimeAndGenIssues |
 
-Use fake Backend/SettingsStore for service tests; shared servicetest for face tests. Fixtures and gates never need credentials or the network. Run gofmt -l ., go vet ./..., go test -race ./... during implementation; this documentation task creates no implementation/test files.
+Use fake Backend/SettingsStore for service tests; shared servicetest for CLI/TUI tests. Fixtures and gates never need credentials or the network. Run `make check` for formatting, vet and race tests.
 
 
 ## Structure cache (Phase 10)

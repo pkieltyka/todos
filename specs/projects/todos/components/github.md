@@ -889,9 +889,10 @@ Use errors.As for api.HTTPError and api.GraphQLError. Apply this priority across
 
 - [go-gh v2.17.0 clients/options](https://github.com/cli/go-gh/blob/v2.17.0/pkg/api/client_options.go), [GraphQL implementation](https://github.com/cli/go-gh/blob/v2.17.0/pkg/api/graphql_client.go), [errors](https://github.com/cli/go-gh/blob/v2.17.0/pkg/api/errors.go), [auth](https://github.com/cli/go-gh/blob/v2.17.0/pkg/auth/auth.go).
 - [Projects API](https://docs.github.com/en/issues/planning-and-tracking-with-projects/automating-your-project/using-the-api-to-manage-projects), [Projects schema](https://docs.github.com/en/graphql/reference/projects), [PR schema](https://docs.github.com/en/graphql/reference/pulls), [rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api), [search ceiling](https://docs.github.com/en/rest/search/search).
-- The source proposal's read documents were schema-validated against pkieltyka/playg; detail queries returned expected NOT_FOUND because that repo was empty.
-- Mutation input and payload fields, including unarchive, were checked by read-only introspection. No mutation was executed.
-- Nonempty pagination, archived-write behaviour and rate-limit failures remain fixture/opt-in read-test coverage; do not claim live mutation validation.
+- At the proposal stage, read documents were schema-validated against pkieltyka/playg; detail queries returned expected NOT_FOUND because the repository was empty. Mutation input and payload fields, including unarchive, were checked by read-only introspection; that stage executed no mutations.
+- Later live write transcripts cover every CLI write command on throwaway issues #15 and #16 (`/tmp/todos-phase5-live/`), and quick add with checked-close and board placement on #17–#19 (`/tmp/todos-phase7-live/`). These included archived-card restoration and board workflow interactions. All five issues were deleted afterwards.
+- Cache experiments on throwaway #85 (`/tmp/todos-cache-review-20261116/`) and #86 (`/tmp/todos-phase11-xncs51lq/`) checked timestamp/token behaviour, board changes, label propagation and query costs. Both issues were deleted afterwards. These paths are historical records on the original development machine; [GitHub in practice](../../../../notes/3-github-in-practice.md) preserves observations and limits, and [core build notes](../../../../notes/4-core-build-notes.md) describes how to repeat measurements.
+- No live rate-limit failures were induced, and not every pagination boundary was exercised live. Fixtures cover these cases; opt-in live tests are read-only.
 
 ## Cache credential identity (Phase 10)
 

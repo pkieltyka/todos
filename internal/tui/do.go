@@ -356,11 +356,11 @@ func (a *App) loadBoard(refreshMeta bool, reason LoadReason) tea.Cmd {
 				return both{}, err
 			}
 		}
-		// Board first: it reads the columns live and refreshes the board's
-		// fields when a card carries an unknown Status option, so the
-		// BoardInfo read after it (a memo hit) matches the columns, project
-		// title included. Board fails with the same no_board and
-		// missing_scope errors when the board cannot be used.
+		// Board first: it reads the board's fields live on every call
+		// (cache.md 3, 5), so the BoardInfo read after it is a memo hit that
+		// matches the columns, project title included. Board fails with the
+		// same no_board and missing_scope errors when the board cannot be
+		// used.
 		board, err := svc.Board(ctx)
 		if err != nil {
 			return both{}, err

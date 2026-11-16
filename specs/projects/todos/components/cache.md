@@ -355,10 +355,15 @@ The cache must not be invisible to the programs that read `todos` output.
 
 - `todos list --json`, `todos view --json` and `todos board --json` each gain
   one field, `as_of`: the time their data was read from GitHub. For a list it
-  is the oldest read time of the pages returned, where a live page counts from
-  the moment its request was sent, never from when the command finished. For
-  `view` and `board`, which are always live, it is the moment their first
-  request was sent.
+  is the oldest read time of the pages returned. A cached page counts from its
+  `readAt`. A live page counts from the moment the command asked the service
+  for it, which is before the probe and so never later than the moment the
+  page's own request was sent, and never the moment the command finished. For
+  `view` and `board`, which are always live, it is the moment before their
+  first request.
+- `as_of` may be earlier than the true read by the time a probe takes, and is
+  never later. An early stamp can only make a document lose a comparison it
+  might have won; a late one would claim data newer than it is.
 - Format: RFC 3339 in UTC with millisecond precision, so a list and a view
   made in the same second can still be ordered.
 - The rule for agents, stated in the skill: for the same issue, the document

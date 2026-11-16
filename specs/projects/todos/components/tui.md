@@ -771,9 +771,8 @@ project switch (`ReasonRefresh`).
   the header shows stale (UI 5.3), and a banner appears (UI 3.14).
 - **Board:** one request reads `Board`, then `BoardInfo`, and replaces
   `Info`, `Order`, `Hidden` and the truncation flags whole, and `Put`s the
-  cards. `Board` comes first because it reads the columns live and refreshes
-  the board's fields when a card carries an unknown Status option; the
-  `BoardInfo` read after it is then a memo hit that matches the columns,
+  cards. `Board` comes first because it reads the board's fields live on
+  every call (cache.md §3, §5); the `BoardInfo` read after it is then a memo hit that matches the columns,
   project title included. When the board cannot be used, `Board` fails with
   the same `no_board` and `missing_scope` errors, so the setup states are
   unchanged.
@@ -1979,11 +1978,12 @@ which is authoritative.
 `github.com/charmbracelet/x/exp/teatest/v2`
 `v2.0.0-20261101151554-27ecf3e4d454` exists, is untagged, and its `go.mod`
 requires bubbletea `v2.0.0-rc.1`. Minimum version selection lifts that to
-v2.1.1, and the combination **compiles** (verified). I have **not run** it,
-so its behaviour against 2.1.1 is **UNVERIFIED**. That is why only the four
-end-to-end tests use it. Its API *(read)*: `NewTestModel(tb, m,
-WithInitialTermSize(w, h))`, `Send`, `Type`, `WaitFor`, `FinalModel`,
-`FinalOutput`, `RequireEqualOutput`.
+v2.1.1, and the combination compiles and runs. Two end-to-end tests use it
+(`e2e_test.go`: `TestE2E_startupToFirstFrame`, `TestE2E_qQuits`); both run
+in `make check` and pass. They are few on purpose, because the module is an
+untagged pseudo-version; everything else goes through the harness (18.1).
+Its API *(read)*: `NewTestModel(tb, m, WithInitialTermSize(w, h))`, `Send`,
+`Type`, `WaitFor`, `FinalModel`, `FinalOutput`, `RequireEqualOutput`.
 
 ### 18.4 Named test cases
 
