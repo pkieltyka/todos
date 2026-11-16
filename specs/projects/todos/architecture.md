@@ -25,8 +25,11 @@ component doc is wrong. References like (4.4) point to the functional spec and
 1. **One behaviour, two faces.** The CLI and the TUI call the same service
    methods. Neither talks to GitHub. A rule (validation, a multi-step change,
    quick add) is written once, in the service.
-2. **GitHub is the only store.** No database, no on-disk cache of GitHub data.
-   The only files are the config file and quick-add drafts.
+2. **GitHub is the only source of truth.** No database. A disposable on-disk
+   cache holds copies of GitHub data under the rules in `components/cache.md`:
+   issue lists and boards are used only after GitHub confirms nothing changed,
+   and slow-changing structure is reused for minutes. Deleting the cache is
+   always safe. The other files are the config file and quick-add drafts.
 3. **The service is synchronous; concurrency belongs to the caller.** Every
    service method takes a context, blocks, and returns. The TUI turns calls
    into commands; the CLI just calls.
@@ -57,6 +60,7 @@ internal/service         use cases; the only package the faces call
 internal/service/servicetest   in-memory fake Service with fixtures and gates
 internal/quickadd        punch-list parser (pure)
 internal/config          config file and draft files
+internal/cache           file store for the read-through cache (no policy)
 internal/github          GitHub client on go-gh
 internal/domain          plain types and the error type
 ```
@@ -69,6 +73,7 @@ Import rules, enforced by a test that inspects imports
 | `domain` | nothing |
 | `quickadd` | `domain` |
 | `config` | `domain` |
+| `cache` | `domain` |
 | `markdown` | nothing |
 | `github` | `domain` |
 | `service` | `domain`, `quickadd` |
@@ -76,8 +81,9 @@ Import rules, enforced by a test that inspects imports
 | `tui` | `domain`, `service`, `markdown`, `quickadd` (only for `Remaining`, so the rule for which text is still unsent exists once) |
 | `cli` | everything above |
 
-- `service` defines the two interfaces it depends on: `Backend` (implemented
-  by `github`) and `SettingsStore` (implemented by `config`). `tui` defines
+- `service` defines the three interfaces it depends on: `Backend` (implemented
+  by `github`), `SettingsStore` (implemented by `config`) and `CacheStore`
+  (implemented by `cache`; nil means no cache). `tui` defines
   `DraftStore` (implemented by `config`).
 - `cli` is the only place that constructs `github`, `config` and `service`
   and wires them together.
@@ -87,15 +93,19 @@ Import rules, enforced by a test that inspects imports
 | State | Owner | Lifetime |
 |---|---|---|
 | Credentials, HTTP clients | `github` | process |
-| Authenticated user, repository | `service`, memoised | process |
-| Labels, assignable users, resolved board with its Status field and options | `service`, memoised for 60 seconds | process |
+| Authenticated user, repository | `service`, memoised for 5 minutes, persisted in the cache | across processes |
+| Labels, assignable users | `service`, memoised for 5 minutes, persisted in the cache | across processes |
+| Resolved board with its Status field and options | `service`, memoised for 60 seconds, persisted in the cache | across processes |
+| Issue list pages and board item pages, each with the change token it was read under | `service` policy, `cache` files | until the token changes, a write through `todos`, or 10 minutes |
 | Last seen rate-limit numbers | `github`, read through `service.RateLimit()` | process |
 | Issues, pull requests, board contents, comments | `tui` store | TUI session |
 | In-flight changes and their optimistic effect | `tui` | until settled |
 | Board choice per repository | `config` file | persistent |
 | Quick-add draft per repository | `config` draft files | until sent or discarded |
 
-The service never caches issues, pull requests or board contents.
+The service never caches one issue, one pull request, comments, pull request
+lists or search results. Issue list pages and board pages are cached only
+under the probe rule in `components/cache.md`.
 
 ## 4. The service seam
 
@@ -397,4 +407,5 @@ All of them go into `go.mod` in the first implementation phase, so the two
 tracks never edit `go.mod` at the same time. Until real code imports them, a
 file `internal/tools/deps.go` behind the build tag `deps` blank-imports each
 one, so `go mod tidy` keeps the pins. It is deleted in the last phase. No second GitHub SDK, no GraphQL
-code generator, no database, no HTTP cache.
+code generator, no database, no HTTP cache: the read-through cache is our own
+(`components/cache.md`), and go-gh's HTTP cache stays off.
