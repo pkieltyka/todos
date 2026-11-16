@@ -1176,6 +1176,28 @@ func (a *App) footer(c *Ctx, s Screen) string {
 	return spread(a.hints(c, s, w-lipgloss.Width(pos)-3), t.muted().Render(pos)+" ", w)
 }
 
+// issueTarget is a screen whose per-issue actions act on one issue: the
+// selected row, the focused card, or the open detail. 0 means none.
+type issueTarget interface {
+	TargetIssue(c *Ctx) int
+}
+
+// closeReopens reports whether x on screen s would reopen rather than close:
+// the same effective issue (base plus pending changes) that issueAction
+// reads.
+func closeReopens(c *Ctx, s Screen) bool {
+	t, ok := s.(issueTarget)
+	if !ok {
+		return false
+	}
+	n := t.TargetIssue(c)
+	if n == 0 {
+		return false
+	}
+	i, ok := c.Issue(n)
+	return ok && i.State == "closed"
+}
+
 // hints renders as many footer key hints as fit (tui.md 9.3).
 func (a *App) hints(c *Ctx, s Screen, w int) string {
 	t := c.Theme
@@ -1215,6 +1237,9 @@ func (a *App) hints(c *Ctx, s Screen, w int) string {
 			if _, over := helpOverrides[ctxID][act]; !over {
 				d = s
 			}
+		}
+		if act == ActClose && closeReopens(c, s) {
+			d = "reopen" // x reopens a closed issue (actions.go), pending changes included
 		}
 		if p, ok := footerPairs[act]; ok {
 			k, d = p[0], p[1]

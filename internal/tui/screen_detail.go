@@ -225,6 +225,7 @@ func newIssueDetail(n int, from string) *IssueDetail {
 }
 
 func (s *IssueDetail) ID() ScreenID                { return ScreenIssue }
+func (s *IssueDetail) TargetIssue(*Ctx) int        { return s.number }
 func (s *IssueDetail) Mode() InputMode             { return ModeNav }
 func (s *IssueDetail) Cursor(*Ctx) *tea.Cursor     { return nil }
 func (s *IssueDetail) Position(*Ctx) string        { return s.position() }

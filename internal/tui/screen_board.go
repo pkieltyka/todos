@@ -47,6 +47,15 @@ func (s *Board) focused() *DisplayColumn {
 	return &s.cols[s.col]
 }
 
+// TargetIssue is the focused card, the issue the per-issue actions act on;
+// 0 on an empty column, where they do nothing (Update).
+func (s *Board) TargetIssue(*Ctx) int {
+	if f := s.focused(); f != nil && len(f.Numbers) > 0 {
+		return s.sel
+	}
+	return 0
+}
+
 func (s *Board) Position(*Ctx) string {
 	f := s.focused()
 	if f == nil || len(f.Numbers) == 0 {

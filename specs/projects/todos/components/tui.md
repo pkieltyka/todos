@@ -1300,7 +1300,12 @@ none of them can bind a key the keymap does not know.
   filter`, because letters are text there (dogfood).
 - **Footer:** `target.Actions(ctx)` in priority order, rendered as `key desc`
   pairs with `HelpText`, as many as fit the footer width minus the position
-  text (UI 1). When a toast is showing, it replaces them.
+  text (UI 1). When a toast is showing, it replaces them. The `x` hint says
+  `reopen` instead of `close` when the issue `x` acts on is closed: the
+  screen's `TargetIssue` (selected row, focused card, open detail) read
+  through `Ctx.Issue`, the same effective issue `issueAction` uses, so a
+  pending close already says `reopen` (`closeReopens`, app.go). The help
+  screen keeps `close / reopen`.
 - **Help** (`overlay_help.go`, as built): a full-body overlay generated from
   the keymap, so it cannot drift. It lists every action the screen it was
   opened from enables, plus the global ones, in the groups Navigate, Issue
@@ -2098,6 +2103,7 @@ Its API *(read)*: `NewTestModel(tb, m, WithInitialTermSize(w, h))`, `Send`,
 - `TestKeymapSameKeySameAction`
 - `TestKeymap_textModeKeysFreeInTextarea`
 - `TestFooter_fromActions_fitsWidth`
+- `TestCloseLabel_issueList`, `TestCloseLabel_detail`, `TestCloseLabel_board`: the `x` hint says `reopen` on a closed or pending-closed issue
 - `TestHelp_listsEveryEnabledAction`
 - `TestHelp_listsWritingKeysAndPrevView`
 - `TestTextMode_lettersGoToInput`

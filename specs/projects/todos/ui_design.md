@@ -26,7 +26,7 @@ Every screen is the same four bands. Only the body changes.
 | Header | 1 | app name, repo, the three view tabs (active one in accent), sync state at the right |
 | Sub-bar | 1 | view-specific: state filter, "mine" toggle, filter text, counts, load progress, truncation notice |
 | Body | rest | the view |
-| Footer | 1 | left: 4–7 most useful keys for the focused thing (from the keymap, so it can't drift); right: position (`12/342`). A toast replaces the left side for messages and errors. |
+| Footer | 1 | left: 4–7 most useful keys for the focused thing (from the keymap, so it can't drift); right: position (`12/342`). A toast replaces the left side for messages and errors. The `x` hint names what `x` would do to that issue: `x close` on an open issue, `x reopen` on a closed one (a pending close counts as closed). |
 
 At **80×24** the body is 21 rows. At **140×40** it is 37 rows. Nothing below
 80×24 is drawn except the too-small screen (§3.15).

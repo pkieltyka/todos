@@ -21,9 +21,10 @@ type IssueList struct {
 
 func newIssueList() *IssueList { return &IssueList{} }
 
-func (s *IssueList) ID() ScreenID      { return ScreenIssues }
-func (s *IssueList) Slots() []Slot     { return nil }
-func (s *IssueList) Title(*Ctx) string { return "" }
+func (s *IssueList) ID() ScreenID         { return ScreenIssues }
+func (s *IssueList) TargetIssue(*Ctx) int { return s.sel }
+func (s *IssueList) Slots() []Slot        { return nil }
+func (s *IssueList) Title(*Ctx) string    { return "" }
 func (s *IssueList) Mode() InputMode {
 	if s.filtering {
 		return ModeText
