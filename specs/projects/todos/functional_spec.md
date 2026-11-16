@@ -762,9 +762,10 @@ the TUI. It holds copies of two kinds of data:
 - **Issue lists.** Before a stored copy is used, `todos` asks GitHub one small
   question: has anything in this repository or on its board changed? The copy
   is used only if the answer is no. There is no timer.
-- **Slow-changing structure.** The signed-in user, the repository, labels and
-  assignable users are reused for 5 minutes; the board and its Status columns
-  for 1 minute.
+- **Slow-changing structure.** The signed-in user, the repository, labels,
+  assignable users and the board's Status options are reused for 5 minutes.
+  The Board view and `todos board` do not rely on that: they read the board's
+  columns from GitHub every time, together with its cards.
 
 Everything else is always read from GitHub: the cards of a board, one issue,
 one pull request, comments, pull request lists and search. The board is always

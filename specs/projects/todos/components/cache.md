@@ -59,7 +59,7 @@ for up to about 7 seconds). So the promise is:
 | Kind | What | Rule |
 |---|---|---|
 | **Content** | issue list pages (not search) | Used only when a probe made for this call returns the token the page was stored under, the page is under 10 minutes old, and no write has happened since it was read. |
-| **Structure** | session (viewer and repository), labels, assignable users, the resolved board with its Status field and options | Reused for a fixed time: 5 minutes for session, labels and users; 1 minute for the board, as today. Misses and failures heal themselves (section 6). |
+| **Structure** | session (viewer and repository), labels, assignable users, the resolved board with its Status field and options | Reused for 5 minutes. Misses and failures heal themselves (section 6). The Board view and `todos board` do not rely on it for their columns: `Board` reads the board's fields from GitHub every time (section 5). |
 | **Never cached** | board cards, one issue, one pull request, comments, pull request lists, search, every write, `doctor` | Always GitHub. |
 
 Why those are never cached:
@@ -193,10 +193,19 @@ holds when two calls in one process interleave.
 a cursor is not a snapshot, and remembering one would let page 2 be served on
 page 1's evidence. A 500-issue list unchanged costs 5 points, not 15.
 
-`Board` does not probe and does not use the store: it reads every page from
-GitHub, as today. It also heals stale structure: if a card carries a Status
-option that the remembered board does not list, `Board` reads the board's
-fields again from GitHub once and builds the columns from that.
+`Board` does not probe and does not use the store for cards: it reads every
+page from GitHub, as today. It is live for its columns too: every `Board` call
+reads the board's fields and Status options from GitHub (one request), builds
+the columns from that, and puts the result in the memo and the store, so the
+status picker and the next command see it. Which project is the board, a
+choice that almost never changes, is the only part `Board` takes from the
+remembered structure.
+
+This replaces the one-minute timer the board's structure had. Measured on a
+TUI left idle on the issue list, that timer re-read the board's structure on
+every refresh and cost more than the list itself. Everything except `Board`
+now reuses the board's structure for 5 minutes, and an unknown status name
+still triggers a refresh before a command is rejected (section 6).
 
 `ListIssues` asks for board placement when a board is selected, so an issue
 list row shows its board status. Its token therefore includes the project
@@ -449,8 +458,10 @@ directory.
 - `as_of` for a live list (its first request's send time, not the end of the
   command), an all-cached list (the oldest `readAt`) and a mixed one (the
   oldest of all).
-- `Board` sends its item requests whatever the store holds, and a card with an
-  unknown Status option causes exactly one fresh read of the board's fields.
+- `Board` sends its item requests whatever the store holds, and reads the
+  board's fields from GitHub exactly once per call, with a warm memo and a warm
+  file; the fields it read are what the next `BoardInfo` returns. A list read
+  within 5 minutes of another reads no board structure.
 
 ## 12. Decisions taken against the alternatives
 
@@ -461,7 +472,7 @@ directory.
 | Remember a cursor chain | No, probe every page | A cursor is not a snapshot; simpler; costs 4 points on a 500-issue list. |
 | Wrap the backend or cache in the service | In the service | A wrapper cannot see or bypass the service's memo, and writes by node ID carry no repository. |
 | Partition by HMAC with a key file | No, plain SHA-256 | The key file sits beside the cache and adds a lifecycle for no gain. |
-| Board structure for 5 minutes | No, 1 minute as today | A new Status option should not take five times longer to appear. |
+| Board structure on a 1-minute timer | No. `Board` reads the fields live every call; everything else reuses them for 5 minutes | Measured: on an idle issue list the 1-minute timer cost about 28 of 41 points in ten minutes. Reading the fields inside `Board` makes the board's columns live, which is what Peter asked of the board, and frees every other command from the timer. |
 | Cache board cards | No | Peter's decision: the board is live. Measured, an unchanged 1,000-card board would have cost 1 point instead of 20. |
 | Cache pull request lists | No | Checks change without moving the timestamp. A short timer is a later option. |
 | Serve stale data when GitHub refuses | No | A rate-limit or auth error is shown, not hidden. |

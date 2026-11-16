@@ -96,7 +96,7 @@ Import rules, enforced by a test that inspects imports
 | Credentials, HTTP clients | `github` | process |
 | Authenticated user, repository | `service`, memoised for 5 minutes, persisted in the cache | across processes |
 | Labels, assignable users | `service`, memoised for 5 minutes, persisted in the cache | across processes |
-| Resolved board with its Status field and options | `service`, memoised for 60 seconds, persisted in the cache | across processes |
+| Resolved board with its Status field and options | `service`, memoised for 5 minutes, persisted in the cache; `Board` reads the fields from GitHub on every call and replaces them | across processes |
 | Issue list pages, each with the change token it was read under | `service` policy, `cache` files | until the token changes, a write through `todos`, or 10 minutes |
 | Last seen rate-limit numbers | `github`, read through `service.RateLimit()` | process |
 | Issues, pull requests, board contents, comments | `tui` store | TUI session |
