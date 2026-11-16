@@ -168,6 +168,18 @@ func (a *App) issuesPage(q IssueQuery, cursor string, shadow bool, reason LoadRe
 	})
 }
 
+// pageStamp is the asOf of the issues on a list page: when the page was
+// really read from GitHub (its AsOf, set on a read-cache hit), or the
+// request's send time for a live read (cache.md 5). The same stamp goes to
+// Store.Put and to releaseUncertain, so a cached page can neither replace a
+// newer issue nor settle an uncertain change.
+func pageStamp(asOf, sent time.Time) time.Time {
+	if !asOf.IsZero() {
+		return asOf
+	}
+	return sent
+}
+
 func (a *App) onIssuesPage(m issuesPageMsg) tea.Cmd {
 	slot := Slot{Kind: SlotIssues}
 	r, ok := a.accept(slot, m.req)
@@ -187,8 +199,9 @@ func (a *App) onIssuesPage(m issuesPageMsg) tea.Cmd {
 		}
 		return nil
 	}
+	stamp := pageStamp(m.page.AsOf, m.sent)
 	for _, i := range m.page.Items {
-		a.putIssue(i, m.sent, true)
+		a.putIssue(i, stamp, true) // the same stamp for the store and an uncertain release
 	}
 	target := c
 	if m.shadow {
@@ -196,6 +209,11 @@ func (a *App) onIssuesPage(m issuesPageMsg) tea.Cmd {
 			return nil
 		}
 		target = c.next
+	}
+	if target.checkSent.IsZero() { // the load's first page
+		target.checkSent, target.DataAt = m.sent, stamp
+	} else if stamp.Before(target.DataAt) {
+		target.DataAt = stamp
 	}
 	nums := make([]int, len(m.page.Items))
 	for i, it := range m.page.Items {
@@ -217,8 +235,17 @@ func (a *App) onIssuesPage(m issuesPageMsg) tea.Cmd {
 		return a.issuesPage(c.Query, target.Cursor, m.shadow, r.Reason, r.Since)
 	}
 	a.finish(slot)
+	if m.shadow && target.DataAt.Before(c.DataAt) {
+		// The result is older than the list it would replace (a cache hit
+		// from before our last read): it changes no numbers, totals, order
+		// or cursor. The check itself succeeded.
+		c.next = nil
+		c.CheckedAt, c.checkSent = a.now(), target.checkSent
+		c.Err = nil
+		return nil
+	}
 	target.Phase = PhaseComplete
-	target.LoadedAt = a.now()
+	target.CheckedAt = a.now()
 	target.Truncated = target.Total > listCap
 	target.Err = nil
 	if m.shadow {
@@ -329,11 +356,16 @@ func (a *App) loadBoard(refreshMeta bool, reason LoadReason) tea.Cmd {
 				return both{}, err
 			}
 		}
-		info, err := svc.BoardInfo(ctx)
+		// Board first: it reads the columns live and refreshes the board's
+		// fields when a card carries an unknown Status option, so the
+		// BoardInfo read after it (a memo hit) matches the columns, project
+		// title included. Board fails with the same no_board and
+		// missing_scope errors when the board cannot be used.
+		board, err := svc.Board(ctx)
 		if err != nil {
 			return both{}, err
 		}
-		board, err := svc.Board(ctx)
+		info, err := svc.BoardInfo(ctx)
 		return both{info, board}, err
 	}
 	return read(a.deps.Clock, ctx, call, func(sent time.Time, v both, err error) tea.Msg {

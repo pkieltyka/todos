@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,6 +22,9 @@ type memoryCache struct {
 	mu                sync.Mutex
 	values            map[string]cacheValue
 	gets, puts, drops int
+	bumps             int
+	failBump          bool
+	epochs            map[string]int
 }
 
 func (m *memoryCache) Get(space, key string) ([]byte, time.Time, bool) {
@@ -49,8 +53,27 @@ func (m *memoryCache) Drop(space, prefix string) {
 		}
 	}
 }
-func (*memoryCache) Epoch(string) string { return "none" }
-func (*memoryCache) Bump(string) bool    { return true }
+func (m *memoryCache) Epoch(space string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.epochs[space] == 0 {
+		return "none"
+	}
+	return strconv.Itoa(m.epochs[space])
+}
+func (m *memoryCache) Bump(space string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.bumps++
+	if m.failBump {
+		return false
+	}
+	if m.epochs == nil {
+		m.epochs = map[string]int{}
+	}
+	m.epochs[space]++
+	return true
+}
 
 type cacheClock struct{ ns atomic.Int64 }
 
@@ -112,7 +135,7 @@ func TestStructure_PersistentAcrossServicesAndFreshBypassesBoth(t *testing.T) {
 
 func TestStructure_OneExpiryFromOriginalReadAt(t *testing.T) {
 	for _, board := range []bool{false, true} {
-		t.Run(map[bool]string{false: "five-minute", true: "board-one-minute"}[board], func(t *testing.T) {
+		t.Run(map[bool]string{false: "labels-five-minute", true: "board-five-minute"}[board], func(t *testing.T) {
 			c := newCacheClock()
 			m := &memoryCache{}
 			b := cacheBackend()
@@ -130,9 +153,6 @@ func TestStructure_OneExpiryFromOriginalReadAt(t *testing.T) {
 			}
 			load(s)
 			ttl := 5 * time.Minute
-			if board {
-				ttl = time.Minute
-			}
 			c.Add(ttl - time.Second)
 			second := cachedCore(b, m, c)
 			load(second)
@@ -681,5 +701,37 @@ func TestStructure_QuickRunRefusalDropsBothMemos(t *testing.T) {
 	assertKind(t, err, domain.ErrInvalidInput)
 	if b.counts["CreateIssue"] != 1 {
 		t.Fatal("sent a stale label ID after refusal")
+	}
+}
+
+func TestStructure_UseBoardSharesFiveMinuteExpiry(t *testing.T) {
+	for _, files := range []bool{false, true} {
+		t.Run(map[bool]string{false: "memo", true: "file"}[files], func(t *testing.T) {
+			c := newCacheClock()
+			b := cacheBackend()
+			var store CacheStore
+			if files {
+				store = &memoryCache{}
+			}
+			s := cachedCore(b, store, c)
+			ref := domain.ProjectRef{Host: "github.com", Owner: "test", Number: 1}
+			if _, err := s.UseBoard(context.Background(), ref); err != nil {
+				t.Fatal(err)
+			}
+			c.Add(5*time.Minute - time.Nanosecond)
+			if _, err := s.BoardInfo(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if b.count("ProjectFields") != 1 {
+				t.Fatal("UseBoard metadata expired before five minutes")
+			}
+			c.Add(time.Nanosecond)
+			if _, err := s.BoardInfo(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if b.count("ProjectFields") != 2 {
+				t.Fatal("UseBoard metadata did not expire at five minutes")
+			}
+		})
 	}
 }

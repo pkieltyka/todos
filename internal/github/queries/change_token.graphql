@@ -1,0 +1,12 @@
+query ChangeToken($owner: String!, $name: String!, $project: ID!, $withProject: Boolean!) {
+  viewer { login }
+  repository(owner: $owner, name: $name) {
+    issues(first: 1, orderBy: {field: UPDATED_AT, direction: DESC}) {
+      totalCount
+      nodes { number updatedAt }
+    }
+  }
+  node(id: $project) @include(if: $withProject) {
+    ... on ProjectV2 { updatedAt items { totalCount } }
+  }
+}

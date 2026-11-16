@@ -40,15 +40,7 @@ func (s *core) ListIssues(ctx context.Context, f domain.IssueFilter, p domain.Pa
 	if b, err := s.BoardInfo(ctx); err == nil {
 		boardID = b.Project.NodeID
 	}
-	page, err := s.backend.ListIssues(ctx, session.Repo.Ref, f, p, boardID)
-	if err != nil {
-		return domain.Page[domain.Issue]{}, typed(err)
-	}
-	page.Items = append([]domain.Issue{}, page.Items...)
-	for i := range page.Items {
-		page.Items[i] = domain.CloneIssue(page.Items[i])
-	}
-	return page, nil
+	return s.issuePage(ctx, session.Repo.Ref, f, p, boardID)
 }
 func (s *core) GetIssue(ctx context.Context, n int) (domain.IssueDetail, error) {
 	if n < 1 {

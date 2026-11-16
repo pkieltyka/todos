@@ -156,8 +156,8 @@ func TestIssues_refreshBuildsShadowAndSwaps(t *testing.T) {
 	if n := len(h.app.store.Issues.Numbers); n != 249 {
 		t.Fatalf("%d rows after the swap", n)
 	}
-	if !h.app.store.Issues.LoadedAt.Equal(h.now) {
-		t.Fatal("LoadedAt not updated")
+	if !h.app.store.Issues.CheckedAt.Equal(h.now) {
+		t.Fatal("CheckedAt not updated")
 	}
 	h.contains("synced just now")
 }
@@ -410,9 +410,10 @@ func TestBoardSetup_PChoosesProjectInNoBoardAndNoStatusField(t *testing.T) {
 
 func TestBoard_refreshOnSetupCallsRefreshMetadataFirst(t *testing.T) {
 	h := newHarness(t, richFixture(), withStart(ViewBoard), withLazy())
-	g := h.hold("BoardInfo", 0)
+	g := h.hold("Board", 0) // the board load reads Board first
 	h.boot()
 	h.fail(g, &domain.Error{Kind: domain.ErrMissingScope, Message: "missing project scope"})
+	h.contains(`The board needs the "project" permission`)
 	h.press("r")
 	var order []string
 	for _, c := range h.fake.Calls() {
@@ -421,14 +422,14 @@ func TestBoard_refreshOnSetupCallsRefreshMetadataFirst(t *testing.T) {
 			order = append(order, c.Method)
 		}
 	}
-	want := []string{"BoardInfo", "RefreshMetadata", "BoardInfo", "Board"}
+	want := []string{"Board", "RefreshMetadata", "Board", "BoardInfo"}
 	if strings.Join(order, ",") != strings.Join(want, ",") {
 		t.Fatalf("calls %v, want %v", order, want)
 	}
 	h.contains("#5 Issue 5")
 }
 
-func TestBoard_chooseProjectReloadsInfoThenBoard(t *testing.T) {
+func TestBoard_chooseProjectReloadsBoardThenInfo(t *testing.T) {
 	fx := richFixture()
 	fx.BoardInfo.Project = domain.Project{}
 	second := fx.Projects[0]
@@ -443,7 +444,7 @@ func TestBoard_chooseProjectReloadsInfoThenBoard(t *testing.T) {
 			order = append(order, c.Method)
 		}
 	}
-	if strings.Join(order, ",") != "BoardInfo,UseBoard,BoardInfo,Board" {
+	if strings.Join(order, ",") != "Board,UseBoard,Board,BoardInfo" {
 		t.Fatalf("calls %v", order)
 	}
 	h.contains("Board: todos (#1)")

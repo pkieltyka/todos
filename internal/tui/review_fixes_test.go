@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"io"
+	"sync"
 	"testing"
 	"time"
 
@@ -83,8 +84,8 @@ func TestChooseBoard_clearsOldPlacementsAndReloads(t *testing.T) {
 	lists := len(h.calls("ListIssues"))
 	h.press("3")
 	g := h.hold("ListIssues", 0)
-	gb := h.hold("BoardInfo", 0) // the board reload (BoardInfo, then Board) is held too
-	h.press("enter")             // use the first candidate
+	gb := h.hold("Board", 0) // the board reload (Board, then BoardInfo) is held too
+	h.press("enter")         // use the first candidate
 	if i, _ := h.app.store.Issue(6); i.Board != nil {
 		t.Fatalf("old placement kept: %+v", i.Board)
 	}
@@ -253,4 +254,67 @@ func TestRun_cancelsReadsOnQuit(t *testing.T) {
 		t.Fatal("read still alive after Run returned")
 	}
 	_ = keys.Close()
+}
+
+// ---- the board load reads Board, then BoardInfo ----
+
+// staleInfoService answers BoardInfo from a stale memo until Board has run,
+// as the service does: Board reads the board's fields live and refreshes the
+// BoardInfo memo with them.
+type staleInfoService struct {
+	service.Service
+	mu        sync.Mutex
+	refreshed bool
+}
+
+func (s *staleInfoService) Board(ctx context.Context) (domain.Board, error) {
+	b, err := s.Service.Board(ctx)
+	s.mu.Lock()
+	s.refreshed = true
+	s.mu.Unlock()
+	return b, err
+}
+
+func (s *staleInfoService) BoardInfo(ctx context.Context) (domain.BoardInfo, error) {
+	info, err := s.Service.BoardInfo(ctx)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.refreshed {
+		info.Project.Title = "Old project title"
+	}
+	return info, err
+}
+
+func TestBoard_headerShowsTheProjectInfoBoardRefreshed(t *testing.T) {
+	stale := &staleInfoService{}
+	h := newHarness(t, richFixture(), withStart(ViewBoard), func(_ *harness, d *Deps, _ *Options) {
+		stale.Service = d.Service
+		d.Service = stale
+	})
+	h.contains("Board: todos (#1)")
+	h.lacks("Old project title")
+}
+
+// The setup states still appear when the board cannot be used: Board, read
+// first, fails with the same errors.
+func TestBoard_setupStatesStillAppearWithBoardReadFirst(t *testing.T) {
+	t.Run("no board", func(t *testing.T) {
+		h := newHarness(t, unlinkedFixture(), withStart(ViewBoard))
+		if _, ok := h.app.top(ViewBoard).(*BoardSetup); !ok {
+			t.Fatal("no board setup screen")
+		}
+		if len(h.calls("BoardInfo")) != 0 {
+			t.Fatal("BoardInfo read after Board failed")
+		}
+	})
+	t.Run("missing scope", func(t *testing.T) {
+		h := newHarness(t, richFixture(), withStart(ViewBoard), withLazy())
+		g := h.hold("Board", 0)
+		h.boot()
+		h.fail(g, &domain.Error{Kind: domain.ErrMissingScope, Message: "missing project scope"})
+		if _, ok := h.app.top(ViewBoard).(*BoardSetup); !ok {
+			t.Fatal("no board setup screen")
+		}
+		h.contains(`The board needs the "project" permission`)
+	})
 }

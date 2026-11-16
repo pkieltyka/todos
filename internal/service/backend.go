@@ -7,6 +7,7 @@ import (
 )
 
 type Backend interface {
+	ChangeToken(context.Context, domain.RepoRef, domain.NodeID) (domain.ChangeToken, error)
 	CredentialKey(context.Context) (string, error)
 	Credentials(context.Context) (domain.CredentialInfo, error)
 	DoctorScopes(context.Context) (domain.CredentialInfo, error)

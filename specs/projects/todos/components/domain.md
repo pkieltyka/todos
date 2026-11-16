@@ -96,6 +96,7 @@ type Board struct {
 }
 type PageRequest struct { Cursor string; Size int } // 1..100; empty cursor=first
 type Page[T any] struct {
+    AsOf time.Time // cached page: original send time; live page: zero
     Items []T
     Total int
     NextCursor string
@@ -103,6 +104,15 @@ type Page[T any] struct {
     // Search has more than 1000 matches; the provider cannot return every match.
     ProviderTruncated bool
 }
+type ChangeToken struct {
+    Viewer string
+    IssuesTotal, NewestIssue int
+    NewestUpdated, ProjectUpdated time.Time
+    ProjectItems int
+    ServerTime time.Time // this probe response's Date; zero if unavailable
+}
+// Equal compares every field except ServerTime (timestamps with time.Equal).
+func (ChangeToken) Equal(ChangeToken) bool
 type IssueFilter struct { State string; Assignee string; Labels []string; Search string }
 type PRFilter struct { State string }
 type NewIssue struct {

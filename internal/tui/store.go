@@ -43,7 +43,13 @@ type PRQuery struct {
 }
 
 // ListCache holds a list as issue numbers in GitHub order; the issues
-// themselves live in the store.
+// themselves live in the store. Its pages can come from the service's read
+// cache (cache.md 5), so it keeps two times:
+//   - DataAt, when its data was really read from GitHub: the oldest stamp
+//     (pageStamp) of the pages it was built from. Everything the user reads
+//     (the header's age, the stale banner) uses it.
+//   - CheckedAt, when the last load of it completed, by a live read or a
+//     cache hit. Auto-refresh scheduling uses it.
 type ListCache[Q comparable] struct {
 	Query     Q
 	Numbers   []int
@@ -51,11 +57,20 @@ type ListCache[Q comparable] struct {
 	Cursor    string
 	HasMore   bool
 	Phase     LoadPhase
-	LoadedAt  time.Time
+	DataAt    time.Time
+	CheckedAt time.Time
 	Err       *domain.Error // non-nil together with Numbers = stale
 	Truncated bool
 
-	next *ListCache[Q] // a refresh being assembled
+	checkSent time.Time     // the first page's send time of the last load
+	next      *ListCache[Q] // a refresh being assembled
+}
+
+// FromCheck reports whether the list's data was read by its last check
+// rather than served from the read cache: only then is it "synced" as of that
+// check.
+func (l ListCache[Q]) FromCheck() bool {
+	return !l.checkSent.IsZero() && !l.DataAt.Before(l.checkSent)
 }
 
 // PRListCache holds a pull request list as numbers in GitHub order; the

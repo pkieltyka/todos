@@ -903,5 +903,32 @@ func (c *Client) CredentialKey(ctx context.Context) (string, error)
 - Return the full lowercase hex SHA-256 of `"todos-cache-v1\x00" + host + "\x00" + token`.
 - No HTTP call is made solely to compute the key. It follows the client's own environment/config/keyring resolution and changes after credential re-resolution.
 - Raw tokens never leave github. Never print/log the key or include it in doctor. Missing credentials and cancellation retain typed errors.
-- go-gh's HTTP cache stays disabled. ChangeToken is Phase 11, not implemented in Phase 10.
+- go-gh's HTTP cache stays disabled; the service owns content-cache policy.
 - Tests: `TestCredentialKey_NormalizedAndNoHTTP`, `TestCredentialKey_TracksReresolvedTokenAndHost`, `TestCredentialKey_CancelledAndMissingCredential`.
+
+## Change token (Phase 11)
+
+```go
+func (c *Client) ChangeToken(ctx context.Context, repo domain.RepoRef, project domain.NodeID) (domain.ChangeToken, error)
+```
+
+- Embedded `queries/change_token.graphql` uses variables only. It requests all issue states, newest updated issue and total, viewer login, and the selected project's updatedAt/items.totalCount. Without a project, withProject is false.
+- `executeWithMeta` keeps response headers local to this request. `http.ParseTime(meta.Headers.Get("Date"))` produces ServerTime, zero when absent or invalid. Never read a shared last-response header.
+- Missing identities/counts/connections are malformed GitHub errors. A repository with zero issues returns zero newest number/time.
+- A classified scope/forbidden/not-found error confined to GraphQL path `node` returns the decoded issue/viewer half plus that error; any other failed probe returns a zero token plus the error. Neither is success or cache evidence. The service falls back to its normal issue read.
+- Tests: `TestChangeToken_DocumentVariablesAndDate`, `TestChangeToken_MissingOrUnparseableDateIsZero`, `TestChangeToken_DateIsRequestLocal`, `TestChangeToken_ProjectRefusalIsPartialAndNeverSuccessful`, `TestChangeToken_ProbeFailureReturnsZero`, `TestChangeToken_EmptyRepository`, `TestChangeToken_MalformedCannotVouchForData`.
+
+```graphql
+query ChangeToken($owner: String!, $name: String!, $project: ID!, $withProject: Boolean!) {
+  viewer { login }
+  repository(owner: $owner, name: $name) {
+    issues(first: 1, orderBy: {field: UPDATED_AT, direction: DESC}) {
+      totalCount
+      nodes { number updatedAt }
+    }
+  }
+  node(id: $project) @include(if: $withProject) {
+    ... on ProjectV2 { updatedAt items { totalCount } }
+  }
+}
+```

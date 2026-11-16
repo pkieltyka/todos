@@ -702,7 +702,7 @@ func (a *App) age(v ViewID) time.Duration {
 	var at time.Time
 	switch s := a.top(v).(type) {
 	case *IssueList:
-		at = a.store.Issues.LoadedAt
+		at = a.store.Issues.CheckedAt // scheduling: when it was last asked, not how old its data is
 	case *PRList:
 		at = a.store.PRs.LoadedAt
 	case *Board:
@@ -1078,6 +1078,7 @@ func (a *App) header(c *Ctx) string {
 // syncState is the header's right side (UI 5.3).
 func (a *App) syncState(c *Ctx) string {
 	t := c.Theme
+	var list *ListCache[IssueQuery] // the issue list: its data can come from the read cache
 	var (
 		slots  []Slot
 		loaded time.Time
@@ -1087,7 +1088,8 @@ func (a *App) syncState(c *Ctx) string {
 	switch s := a.top(a.active).(type) {
 	case *IssueList:
 		l := a.store.Issues
-		slots, loaded, err, has = []Slot{{Kind: SlotIssues}}, l.LoadedAt, l.Err, len(l.Numbers) > 0
+		slots, loaded, err, has = []Slot{{Kind: SlotIssues}}, l.DataAt, l.Err, len(l.Numbers) > 0
+		list = &l
 	case *PRList:
 		l := a.store.PRs
 		slots, loaded, err, has = []Slot{{Kind: SlotPRs}}, l.LoadedAt, l.Err, len(l.Numbers) > 0
@@ -1135,7 +1137,26 @@ func (a *App) syncState(c *Ctx) string {
 	if loaded.IsZero() {
 		return ""
 	}
-	return t.fg(t.Open).Render("●") + t.muted().Render(" synced "+agoPhrase(c.Now, loaded))
+	return t.fg(t.Open).Render("●") + t.muted().Render(" "+synced(c.Now, loaded, list, a.frame.Header.W))
+}
+
+// synced is the header's "synced …" text (UI 5.3). For the issue list it
+// tells the data's real age, which a read-cache hit can make older than the
+// last check (cache.md 5): "synced just now" only when the data was read by
+// that check, and from 100 columns "· checked …" when the check is newer.
+func synced(now, dataAt time.Time, list *ListCache[IssueQuery], w int) string {
+	age := agoPhrase(now, dataAt)
+	if list == nil || list.FromCheck() {
+		return "synced " + age
+	}
+	if age == "just now" {
+		age = "<1m ago" // read under a minute ago, but not by this check
+	}
+	out := "synced " + age
+	if w >= 100 && list.CheckedAt.After(dataAt) {
+		out += " · checked " + agoPhrase(now, list.CheckedAt)
+	}
+	return out
 }
 
 func (a *App) footer(c *Ctx, s Screen) string {

@@ -528,9 +528,11 @@ type ListCache[Q comparable] struct {
     Cursor    string                       // GitHub's cursor, passed back unchanged (A4)
     HasMore   bool
     Phase     LoadPhase                    // Empty, FirstPage, Background, Complete
-    LoadedAt  time.Time
+    DataAt    time.Time                    // when its data was read: the oldest page stamp (7.9)
+    CheckedAt time.Time                    // when its last load completed, hit or live (7.7)
     Err       *domain.Error                // non-nil with Numbers = stale
     Truncated bool                         // Total > 500
+    checkSent time.Time                    // the last load's first send time (FromCheck)
     next      *ListCache[Q]                // refresh being assembled (7.6)
 }
 
@@ -633,8 +635,11 @@ LoadIssues(q, Initial or QueryChanged):
      next page: ListIssues(ctx, filter(q), PageRequest{Cursor: Cursor, Size: 100})
      → Put; append numbers not already present (a number already present
        keeps its row; its content follows the asOf rule); Phase = Background
-  done: Phase = Complete; LoadedAt = now; Truncated = Total > 500
+  done: Phase = Complete; CheckedAt = now; Truncated = Total > 500
 ```
+
+Each page is `Put` with `pageStamp(page.AsOf, sent)` and lowers `DataAt` to
+that stamp when it is older (7.9).
 
 - `filter(q)` is `domain.IssueFilter{State: q.State, Assignee: "@me" if
   q.Mine}`. `Search` is never set (5.2).
@@ -764,9 +769,14 @@ project switch (`ReasonRefresh`).
   is complete. Issue contents are `Put` as each page arrives, under the asOf
   rule. On failure, `next` is discarded, the old `Numbers` stays, `Err` is set,
   the header shows stale (UI 5.3), and a banner appears (UI 3.14).
-- **Board:** one request reads `BoardInfo`, then `Board`, and replaces
+- **Board:** one request reads `Board`, then `BoardInfo`, and replaces
   `Info`, `Order`, `Hidden` and the truncation flags whole, and `Put`s the
-  cards.
+  cards. `Board` comes first because it reads the columns live and refreshes
+  the board's fields when a card carries an unknown Status option; the
+  `BoardInfo` read after it is then a memo hit that matches the columns,
+  project title included. When the board cannot be used, `Board` fails with
+  the same `no_board` and `missing_scope` errors, so the setup states are
+  unchanged.
 - **Detail:** `GetIssue` (or `GetPR`), and comments page 1 onward into
   `nextComments`, swapped in whole when complete. A detail counts as in
   flight while **either** its body or its comments slot is busy, so a refresh
@@ -802,7 +812,8 @@ There is one `tea.Tick(60s)` chain with a generation. On
    - `svc.RateLimit()` is `Known` with `Remaining < Limit/10` (10). The header
      shows `⏸ auto-refresh paused · N% left` (UI 5.3)
    - the visible view's slot has a request in flight
-   - the visible view finished a load less than 30 s ago. A view that has
+   - the visible view finished a load less than 30 s ago (for the issue list,
+     `CheckedAt`: a cache hit counts as a check, however old its data). A view that has
      never loaded successfully (its first load failed) counts as infinitely
      old, so the next tick retries it, and so does switching to its tab
      (finding 7).
@@ -835,6 +846,46 @@ func reselect(rows []int, sel, prevIndex, offset, height int) (newSel, newOffset
 - Every screen records `prevIndex` when it renders.
 - On the board, the focused column is kept by status option ID, and the
   selected card by number within it.
+
+### 7.9 Issue list pages from the read cache (cache.md 5)
+
+The service can answer an issue list page from its read cache. Such a page
+carries `domain.Page.AsOf`, the time it was really read from GitHub; a live
+page leaves it zero. Board cards, details, comments and pull request lists are
+always live and keep the send time everywhere.
+
+- **One stamp per page.** `pageStamp(asOf, sent)` is the page's `AsOf` when
+  set, else the request's send time. `onIssuesPage` passes it to `putIssue`,
+  which uses it for both `Store.Put` and `releaseUncertain`. So a cached page
+  cannot replace an issue read more recently (in a detail, by a re-read, from
+  the live board), and cannot settle an uncertain change or unblock a held
+  queue: those need a read sent after the failure.
+- **The list's own times.** The list's membership, order, totals and cursor
+  come from its pages, not from per-issue stamps. `DataAt` is the oldest page
+  stamp of the load that built the list; `CheckedAt` is when that load
+  completed.
+- **An older result changes nothing.** When a refresh completes and its
+  `DataAt` is older than the list's, the shadow list is dropped: numbers,
+  totals, order and cursor stay, the error is cleared, and only `CheckedAt`
+  moves. A hit then means "GitHub's token says nothing changed since the data
+  you already have". The per-issue `Put`s still ran under the asOf rule, so
+  nothing newer was replaced. A newer hit (another process read the list
+  later) replaces the list like a live read.
+- **What reads which time.** Auto-refresh scheduling (`App.age`) uses
+  `CheckedAt`. Everything the user reads uses `DataAt`: the header's age, the
+  `⚠ stale · …` state and the stale banner's "Showing data from …".
+- **The header** (`synced`, UI 5.3): `synced <age of DataAt>`. If the data was
+  not read by the last check (`FromCheck`: `DataAt` is before that load's
+  first send time), "just now" becomes `<1m ago`, and from 100 columns
+  `· checked <age of CheckedAt>` is added. So `synced just now` appears only
+  when the data was read by that check. A manual `r` is fresh, so the service
+  reads live and it always ends in a real `synced just now`. The board and
+  the pull request list keep today's header.
+- **Mixed loads.** Page 1 can be a hit and page 2 live; the load is as old as
+  its oldest page. An issue updated between the two can be in neither page
+  until the next load (cache.md 5, the accepted limit).
+- **After our own changes** the service's epoch keeps any page stored before
+  the write from being used (cache.md 6); the TUI needs nothing for that.
 
 ---
 
@@ -1994,7 +2045,7 @@ WithInitialTermSize(w, h))`, `Send`, `Type`, `WaitFor`, `FinalModel`,
 - `TestIssues_staleSameQueryPageDropped`, `TestDetail_stalePopResultDropped` (fail with the request-ID check removed)
 - `TestRun_cancelsReadsOnQuit`
 - `TestBoard_refreshOnSetupCallsRefreshMetadataFirst`
-- `TestBoard_chooseProjectReloadsInfoThenBoard`
+- `TestBoard_chooseProjectReloadsBoardThenInfo`
 
 **pending**
 - `TestApply_setSemanticsIdempotent`
@@ -2110,6 +2161,24 @@ WithInitialTermSize(w, h))`, `Send`, `Type`, `WaitFor`, `FinalModel`,
   `TestIssueList_labelsBorrowUnusedAssigneeRoom`
 - `TestGolden`, `TestGolden_ansi`, `TestGolden_tooSmall`, `TestE2E_*`
 
+**read-cache pages** (`cachehit_test.go`: a wrapper over the fake keeps the
+startup list's pages and serves them back as hits with `AsOf` set)
+- `TestCacheHit_pageStampIsAsOfElseSendTime`
+- `TestCacheHit_doesNotRollBackANewerDetail`
+- `TestCacheHit_olderThanTheListChangesOnlyCheckedAt`
+- `TestCacheHit_newerThanTheListReplacesIt`
+- `TestCacheHit_mixedLoadIsAsOldAsItsOldestPage`
+- `TestCacheHit_beforeALiveBoardReadKeepsTheBoardColumn`
+- `TestCacheHit_olderHitNeitherReleasesUncertainNorUnblocksQueue`
+- `TestCacheHit_autoRefreshCountsFromTheCheck`
+- `TestCacheHit_headerTellsTheDataAge`
+- `TestCacheHit_staleBannerUsesDataAt`
+- `TestCacheHit_boardAndPRHeadersUnchanged`
+
+**board load order** (`review_fixes_test.go`)
+- `TestBoard_headerShowsTheProjectInfoBoardRefreshed`
+- `TestBoard_setupStatesStillAppearWithBoardReadFirst`
+
 **fresh mark** (`fresh_test.go`: a wrapper over the fake records
 `domain.FreshSince` for every read; every read of one refresh carries the same
 time)
@@ -2142,7 +2211,7 @@ time)
 
 **goldens** (each at 80×24 and 140×40)
 
-- issue list: loaded, loading, empty, no match, failed, truncated, stale banner, pending markers, closed (by closed time)
+- issue list: loaded, loading, empty, no match, failed, truncated, stale banner, pending markers, closed (by closed time), cache hit, manual `r` after a hit
 - issue detail
 - PR list, PR list mine
 - PR detail

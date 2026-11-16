@@ -124,12 +124,15 @@ func (s *core) boardChange(ctx context.Context, n int, status *string, preserve,
 	return s.placeIssue(ctx, d.Issue, b, status, preserve, fresh)
 }
 func (s *core) SetStatus(ctx context.Context, n int, status *string) (domain.Change, error) {
+	defer s.beginChange(ctx)()
 	return s.boardChange(ctx, n, status, false, false)
 }
 func (s *core) BoardAdd(ctx context.Context, n int, status *string) (domain.Change, error) {
+	defer s.beginChange(ctx)()
 	return s.boardChange(ctx, n, status, status == nil, false)
 }
 func (s *core) RemoveFromBoard(ctx context.Context, n int) (domain.Change, error) {
+	defer s.beginChange(ctx)()
 	if _, err := s.issueSession(ctx); err != nil {
 		return domain.Change{}, err
 	}

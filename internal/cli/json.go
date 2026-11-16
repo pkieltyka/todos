@@ -30,6 +30,7 @@ type CommentDTO struct {
 }
 type IssueViewDTO struct {
 	IssueDTO
+	AsOf              string       `json:"as_of"`
 	Body              string       `json:"body"`
 	Comments          []CommentDTO `json:"comments"`
 	CommentsTruncated bool         `json:"comments_truncated"`
@@ -80,12 +81,14 @@ type ColumnDTO struct {
 	Cards  []CardDTO `json:"cards"`
 }
 type BoardDTO struct {
+	AsOf        string      `json:"as_of"`
 	Project     ProjectDTO  `json:"project"`
 	Columns     []ColumnDTO `json:"columns"`
 	HiddenItems int         `json:"hidden_items"`
 	Truncated   bool        `json:"truncated"`
 }
 type IssuesDTO struct {
+	AsOf      string     `json:"as_of"`
 	Issues    []IssueDTO `json:"issues"`
 	Total     int        `json:"total"`
 	Truncated bool       `json:"truncated"`
@@ -177,6 +180,8 @@ type QuickDTO struct {
 	Items  []QuickItemDTO `json:"items"`
 	Counts QuickCountsDTO `json:"counts"`
 }
+
+func asOfTimestamp(v time.Time) string { return v.UTC().Format("2006-01-02T15:04:05.000Z") }
 
 func timestamp(v time.Time) string { return v.UTC().Format(time.RFC3339) }
 func timePointer(v *time.Time) *string {

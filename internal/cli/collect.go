@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"time"
 
 	"github.com/pkieltyka/todos/internal/domain"
 	"github.com/pkieltyka/todos/internal/service"
@@ -64,14 +65,23 @@ func collectRows[T any](ctx context.Context, opts ListOptions, fetch func(contex
 	}
 	return rows, total, truncated, nil
 }
-func collectIssues(ctx context.Context, s service.Service, f domain.IssueFilter, opts ListOptions) (IssuesDTO, error) {
+func collectIssues(ctx context.Context, s service.Service, f domain.IssueFilter, opts ListOptions, now func() time.Time) (IssuesDTO, error) {
+	var oldest time.Time
 	rows, total, truncated, err := collectRows(ctx, opts, func(ctx context.Context, p domain.PageRequest) (domain.Page[domain.Issue], error) {
-		return s.ListIssues(ctx, f, p)
+		sent := now()
+		page, err := s.ListIssues(ctx, f, p)
+		if !page.AsOf.IsZero() {
+			sent = page.AsOf
+		}
+		if oldest.IsZero() || sent.Before(oldest) {
+			oldest = sent
+		}
+		return page, err
 	}, func(v domain.Issue) string { return string(v.NodeID) }, f.Search != "")
 	if err != nil {
 		return IssuesDTO{}, err
 	}
-	out := IssuesDTO{Issues: []IssueDTO{}, Total: total, Truncated: truncated}
+	out := IssuesDTO{AsOf: asOfTimestamp(oldest), Issues: []IssueDTO{}, Total: total, Truncated: truncated}
 	for _, row := range rows {
 		out.Issues = append(out.Issues, issueDTO(row))
 	}

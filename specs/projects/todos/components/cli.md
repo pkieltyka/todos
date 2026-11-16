@@ -219,7 +219,7 @@ func validateFlags(cmd *cobra.Command, args []string) error
 ## List/detail collection
 
 ```go
-func collectIssues(ctx context.Context, s service.Service, filter domain.IssueFilter, opts ListOptions) (IssuesDTO,error)
+func collectIssues(ctx context.Context, s service.Service, filter domain.IssueFilter, opts ListOptions, now func() time.Time) (IssuesDTO,error)
 func collectPRs(ctx context.Context, s service.Service, filter domain.PRFilter, opts ListOptions) (PRsDTO,error)
 func collectComments(ctx context.Context, fetch func(context.Context,domain.PageRequest)(domain.Page[domain.Comment],error)) ([]CommentDTO,bool,error)
 ```
@@ -264,6 +264,7 @@ type CommentDTO struct {
 }
 type IssueViewDTO struct {
     IssueDTO
+    AsOf string `json:"as_of"`
     Body string `json:"body"`
     Comments []CommentDTO `json:"comments"`
     CommentsTruncated bool `json:"comments_truncated"`
@@ -311,12 +312,13 @@ type CardDTO struct {
 }
 type ColumnDTO struct { Status *string `json:"status"`; Cards []CardDTO `json:"cards"` }
 type BoardDTO struct {
+    AsOf string `json:"as_of"`
     Project ProjectDTO `json:"project"`
     Columns []ColumnDTO `json:"columns"`
     HiddenItems int `json:"hidden_items"`
     Truncated bool `json:"truncated"`
 }
-type IssuesDTO struct { Issues []IssueDTO `json:"issues"`; Total int `json:"total"`; Truncated bool `json:"truncated"` }
+type IssuesDTO struct { AsOf string `json:"as_of"`; Issues []IssueDTO `json:"issues"`; Total int `json:"total"`; Truncated bool `json:"truncated"` }
 type PRsDTO struct { PullRequests []PRDTO `json:"pull_requests"`; Total int `json:"total"`; Truncated bool `json:"truncated"` }
 type ChangeDTO struct { Issue IssueDTO `json:"issue"`; Changed bool `json:"changed"` }
 type CommentResultDTO struct { Issue IssueDTO `json:"issue"`; Comment CommentDTO `json:"comment"` }
@@ -486,11 +488,19 @@ func TestSkillMatchesCLI(t *testing.T)
 
 ## Structure-cache wiring (Phase 10)
 
-- Add global `--fresh`; Cobra's persistent pre-run marks the invocation context once with `domain.WithFreshSince(ctx, deps.Now())`. This also reaches the TUI context; ordinary manual-refresh marks are owned by tui.
+- Add global `--fresh` (help: "Bypass the cache and read GitHub"); Cobra's persistent pre-run marks the invocation context once with `domain.WithFreshSince(ctx, deps.Now())`. This also reaches the TUI context; ordinary manual-refresh marks are owned by tui.
 - CLI constructs `cache.New(root, cache.Options{Now: deps.Now})`, passes it as `service.Options.Cache`, and injects a read-only `CacheCheck` callback. Constructors create no cache directory.
 - Root: absolute `XDG_CACHE_HOME` plus `todos/v1`, otherwise `~/.cache/todos/v1`; a relative XDG path is ignored. An unavailable home disables persistence rather than failing because of the cache.
 - `TODOS_CACHE=off` (case-insensitive) disables persistence only; the normal finite in-process memo stays active. It sets no fresh mark and no cache files are read or created.
 - `doctor` carries its start-time freshness cutoff and reuses a request-local memo, without cache-file reads or fills; it prints check 7, Cache, on stdout in text/TSV/JSON. The directory diagnostic does not instantiate entries, repair permissions or write a key. Cache failure is advisory; only checks 1–3 determine exit status.
 - If a Service fixture supplies the old six-row report, CLI adds the cache check without changing the shared fake. A wiring failure still emits all seven checks, with cache diagnosis independent of remote failures.
-- Metadata JSON is internal only. Public success/error DTO shapes are unchanged except the appended doctor check. The key/fingerprint is never printed.
+- Metadata JSON is internal only. The doctor report appends a cache check; Phase 11 adds as_of to list/view/board only. The key/fingerprint is never printed.
 - Tests: `TestCache_FreshFlagAndDoctorContexts`, `TestCache_OffAndConstructionAreSideEffectFree`, `TestCache_DoctorReportsUnusableWithoutFailingOrCreating`; updated doctor goldens cover all output modes.
+
+## Content timestamps (Phase 11)
+
+- `IssuesDTO`, `IssueViewDTO` and `BoardDTO` add `as_of`, UTC RFC3339 with exactly three fractional-second digits (`asOfTimestamp`). No issue/change/PR/error DTO gains it. Text and TSV output are unchanged.
+- `collectIssues` records `deps.Now()` immediately before each Service.ListIssues call, substitutes Page.AsOf for hits, and returns the oldest stamp across all pages. Empty pages still contribute their read time. Live or mixed pages are never stamped at command completion.
+- `view` and `board` capture deps.Now immediately before their first service data call, before comments/pages complete. Both remain live.
+- Skill and README explain accepted external timestamp lag, the ten-minute reuse cap, live view/board/fresh, and later-as_of precedence (equal: prefer view).
+- Tests: `TestAsOf_ListUsesOldestSendOrCachedReadTime`, `TestAsOf_ViewAndBoardStampBeforeServiceCall`, `TestContent_DiskReadHeldAcrossWriteNeverReusesOldEpoch`; list/view/board JSON goldens updated. Human/TSV goldens unchanged.

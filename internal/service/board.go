@@ -13,15 +13,26 @@ func noBoard(message string, candidates []domain.Project) error {
 	return &domain.Error{Kind: domain.ErrNoBoard, Message: message, Hint: "run todos board list, then todos board use PROJECT", Candidates: append([]domain.Project{}, candidates...)}
 }
 func (s *core) BoardInfo(ctx context.Context) (domain.BoardInfo, error) {
+	info, _, err := s.boardInfo(ctx)
+	return info, err
+}
+
+// live says whether this call already read fields from GitHub. Board reuses
+// that read on a cold resolution and refreshes fields after a memo/file hit.
+func (s *core) boardInfo(ctx context.Context) (info domain.BoardInfo, live bool, err error) {
 	session, err := s.Session(ctx)
 	if err != nil {
-		return domain.BoardInfo{}, err
+		return domain.BoardInfo{}, false, err
 	}
 	ref, err := s.boardChoice(ctx, session.Repo.Ref)
 	if err != nil {
-		return domain.BoardInfo{}, typed(err)
+		return domain.BoardInfo{}, false, typed(err)
 	}
-	return loadMetadata(ctx, s, &s.board, boardKey(ref), time.Minute, func() (domain.BoardInfo, error) { return s.resolveBoard(ctx) }, cloneInfo)
+	info, err = loadMetadata(ctx, s, &s.board, boardKey(ref), 5*time.Minute, func() (domain.BoardInfo, error) {
+		live = true
+		return s.resolveBoard(ctx)
+	}, cloneInfo)
+	return info, live, err
 }
 func (s *core) validateBoard(ctx context.Context, p domain.Project) (domain.BoardInfo, error) {
 	info, err := s.backend.ProjectFields(ctx, p.NodeID)
@@ -169,7 +180,7 @@ func (s *core) UseBoard(ctx context.Context, ref domain.ProjectRef) (domain.Proj
 	s.selection = &copy
 	space := s.cacheSpace
 	key := boardKey(&ref)
-	s.board = metadata[domain.BoardInfo]{Value: cloneInfo(info), Valid: true, ReadAt: at, ExpiresAt: at.Add(time.Minute), Space: space, Key: key}
+	s.board = metadata[domain.BoardInfo]{Value: cloneInfo(info), Valid: true, ReadAt: at, ExpiresAt: at.Add(5 * time.Minute), Space: space, Key: key}
 	s.mu.Unlock()
 	if s.opts.Cache != nil && space != "" {
 		if data, e := json.Marshal(info); e == nil {
@@ -183,18 +194,18 @@ func (s *core) Board(ctx context.Context) (domain.Board, error) {
 	if err != nil {
 		return domain.Board{}, err
 	}
-	info, err := s.BoardInfo(ctx)
+	info, live, err := s.boardInfo(ctx)
 	if err != nil {
 		return domain.Board{}, err
 	}
-	result := domain.Board{Project: info.Project, Columns: []domain.Column{}}
-	indices := map[string]int{}
-	for _, o := range info.Options {
-		name := o.Name
-		indices[o.ID] = len(result.Columns)
-		result.Columns = append(result.Columns, domain.Column{Status: &name, OptionID: o.ID, Cards: []domain.Card{}})
+	if !live {
+		info, err = s.refreshBoardFields(ctx, info)
+		if err != nil {
+			return domain.Board{}, err
+		}
 	}
-	noStatus := []domain.Card{}
+	result := domain.Board{Project: info.Project, Columns: []domain.Column{}}
+	cards := []domain.Card{}
 	p := domain.PageRequest{Size: 100}
 	seen := map[string]bool{}
 	for {
@@ -220,14 +231,7 @@ func (s *core) Board(ctx context.Context) (domain.Board, error) {
 			placement := item.Placement
 			card.Board = &placement
 			result.VisibleCount++
-			if index, ok := indices[placement.OptionID]; ok {
-				card.Board.Status = result.Columns[index].Status
-				result.Columns[index].Cards = append(result.Columns[index].Cards, card)
-			} else {
-				card.Board.Status = nil
-				card.Board.OptionID = ""
-				noStatus = append(noStatus, card)
-			}
+			cards = append(cards, card)
 		}
 		if !page.HasMore {
 			break
@@ -243,10 +247,56 @@ func (s *core) Board(ctx context.Context) (domain.Board, error) {
 		p.Cursor = page.NextCursor
 		p.Size = min(100, 1000-result.ScannedCount)
 	}
+	result.Project = info.Project
+	indices := map[string]int{}
+	for _, option := range info.Options {
+		name := option.Name
+		indices[option.ID] = len(result.Columns)
+		result.Columns = append(result.Columns, domain.Column{Status: &name, OptionID: option.ID, Cards: []domain.Card{}})
+	}
+	noStatus := []domain.Card{}
+	for _, card := range cards {
+		if index, ok := indices[card.Board.OptionID]; ok {
+			card.Board.Status = result.Columns[index].Status
+			result.Columns[index].Cards = append(result.Columns[index].Cards, card)
+		} else {
+			card.Board.Status, card.Board.OptionID = nil, ""
+			noStatus = append(noStatus, card)
+		}
+	}
 	if len(noStatus) > 0 {
 		result.Columns = append([]domain.Column{{Cards: noStatus}}, result.Columns...)
 	}
 	result.Truncated = result.Truncated || result.TotalItems > 1000
 	result.CardsTruncated = result.VisibleCount > 500
 	return domain.CloneBoard(result), nil
+}
+
+// Board always reads live fields, even with warm structure. Publish those
+// options for BoardInfo and pickers, with the same five-minute expiry.
+func (s *core) refreshBoardFields(ctx context.Context, old domain.BoardInfo) (domain.BoardInfo, error) {
+	s.mu.Lock()
+	generation, space, key := s.generation, s.cacheSpace, s.board.Key
+	s.mu.Unlock()
+	readAt := s.opts.Now()
+	info, err := s.validateBoard(ctx, old.Project)
+	if err != nil {
+		return domain.BoardInfo{}, err
+	}
+	if ctx.Err() != nil {
+		return domain.BoardInfo{}, typed(ctx.Err())
+	}
+	s.structureSpace(ctx)
+	s.mu.Lock()
+	current := generation == s.generation
+	if current {
+		s.board = metadata[domain.BoardInfo]{Value: cloneInfo(info), Valid: true, ReadAt: readAt, ExpiresAt: readAt.Add(5 * time.Minute), Space: space, Key: key}
+	}
+	s.mu.Unlock()
+	if current && s.opts.Cache != nil && space != "" {
+		if data, err := json.Marshal(info); err == nil {
+			s.opts.Cache.Put(space, key, data, readAt)
+		}
+	}
+	return info, nil
 }

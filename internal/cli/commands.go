@@ -176,7 +176,7 @@ func runList(ctx context.Context, r *runtime, c *cobra.Command, _ []string) (any
 	if err := r.ensureService(ctx); err != nil {
 		return nil, err
 	}
-	return collectIssues(ctx, r.wiring.Service, domain.IssueFilter{State: state, Assignee: assignee, Labels: labels, Search: search}, listOptions(c))
+	return collectIssues(ctx, r.wiring.Service, domain.IssueFilter{State: state, Assignee: assignee, Labels: labels, Search: search}, listOptions(c), r.deps.Now)
 }
 func runView(ctx context.Context, r *runtime, _ *cobra.Command, args []string) (any, error) {
 	repo, err := r.resolvedRepo(ctx)
@@ -190,6 +190,7 @@ func runView(ctx context.Context, r *runtime, _ *cobra.Command, args []string) (
 	if err = r.ensureService(ctx); err != nil {
 		return nil, err
 	}
+	sent := r.deps.Now()
 	v, err := r.wiring.Service.GetIssue(ctx, n)
 	if err != nil {
 		return nil, err
@@ -201,7 +202,9 @@ func runView(ctx context.Context, r *runtime, _ *cobra.Command, args []string) (
 	if err != nil {
 		return nil, err
 	}
-	return issueViewDTO(v, comments, truncated), nil
+	out := issueViewDTO(v, comments, truncated)
+	out.AsOf = asOfTimestamp(sent)
+	return out, nil
 }
 func runPRList(ctx context.Context, r *runtime, c *cobra.Command, _ []string) (any, error) {
 	if err := r.ensureService(ctx); err != nil {
@@ -239,11 +242,14 @@ func runBoard(ctx context.Context, r *runtime, _ *cobra.Command, _ []string) (an
 	if err := r.ensureService(ctx); err != nil {
 		return nil, err
 	}
+	sent := r.deps.Now()
 	b, err := r.wiring.Service.Board(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return boardDTO(b), nil
+	out := boardDTO(b)
+	out.AsOf = asOfTimestamp(sent)
+	return out, nil
 }
 func runBoardList(ctx context.Context, r *runtime, _ *cobra.Command, _ []string) (any, error) {
 	if err := r.ensureService(ctx); err != nil {

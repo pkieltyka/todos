@@ -265,6 +265,10 @@ func (c *Client) mutate(ctx context.Context, name string, variables map[string]a
 	return c.execute(ctx, name, variables, out, true)
 }
 func (c *Client) execute(ctx context.Context, name string, variables map[string]any, out any, mutation bool) error {
+	return c.executeWithMeta(ctx, name, variables, out, mutation, &responseMeta{})
+}
+
+func (c *Client) executeWithMeta(ctx context.Context, name string, variables map[string]any, out any, mutation bool, meta *responseMeta) error {
 	doc, err := document(name)
 	if err != nil {
 		return &domain.Error{Kind: domain.ErrInternal, Message: "unknown GitHub operation", Err: err}
@@ -278,8 +282,7 @@ func (c *Client) execute(ctx context.Context, name string, variables map[string]
 	if ctx.Err() != nil {
 		return c.safeError(classify(ctx.Err(), operation{Name: name}, responseMeta{}, c.opts.Now()))
 	}
-	meta := responseMeta{}
-	ctx = context.WithValue(ctx, metaKey{}, &meta)
+	ctx = context.WithValue(ctx, metaKey{}, meta)
 	op := operation{Name: name, Mutation: mutation, Started: true}
 	var raw json.RawMessage
 	err = c.graphql.DoWithContext(ctx, doc, variables, &raw)
@@ -299,7 +302,7 @@ func (c *Client) execute(ctx context.Context, name string, variables map[string]
 	if err == nil {
 		return nil
 	}
-	de := classify(err, op, meta, c.opts.Now())
+	de := classify(err, op, *meta, c.opts.Now())
 	if mutation && de.Kind == domain.ErrGitHub {
 		copy := *de
 		copy.Uncertain = true

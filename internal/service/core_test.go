@@ -36,6 +36,7 @@ type fakeBackend struct {
 	labelStarted  chan struct{}
 	labelRelease  chan struct{}
 	credentialKey string
+	onCall        func(backendCall)
 }
 
 func backendFixture() *fakeBackend {
@@ -46,6 +47,9 @@ func (b *fakeBackend) record(c backendCall) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.calls = append(b.calls, c)
+	if b.onCall != nil {
+		b.onCall(c)
+	}
 	return b.fail[c.Name]
 }
 func (b *fakeBackend) count(name string) int {
@@ -58,6 +62,9 @@ func (b *fakeBackend) count(name string) int {
 		}
 	}
 	return n
+}
+func (b *fakeBackend) ChangeToken(context.Context, domain.RepoRef, domain.NodeID) (domain.ChangeToken, error) {
+	return domain.ChangeToken{}, b.record(backendCall{Name: "ChangeToken"})
 }
 func (b *fakeBackend) Credentials(context.Context) (domain.CredentialInfo, error) {
 	return domain.CredentialInfo{Source: "test"}, b.record(backendCall{Name: "Credentials"})

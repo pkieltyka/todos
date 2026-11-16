@@ -1,12 +1,16 @@
 // Package domain holds transport-independent todos data.
 package domain
 
+import "time"
+
 type PageRequest struct {
 	Cursor string
 	Size   int
 } // 1..100; empty cursor=first
 
 type Page[T any] struct {
+	// AsOf is the original read's send time on a cache hit; zero means live.
+	AsOf       time.Time
 	Items      []T
 	Total      int
 	NextCursor string

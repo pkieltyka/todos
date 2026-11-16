@@ -43,13 +43,18 @@ todos uses the remembered choice or linked project. `todos doctor --json`
 checks credentials, repository, board and config without changing GitHub.
 
 Metadata is shared across invocations in a disposable private cache at
-`$XDG_CACHE_HOME/todos/v1` (default `~/.cache/todos/v1`). Session, labels and
-assignees expire five minutes after their GitHub read; board structure expires
-after one minute. `--fresh` ignores metadata read before the command began, while reusing new
-reads within the command. `TODOS_CACHE=off` disables cache files and keeps the
+`$XDG_CACHE_HOME/todos/v1` (default `~/.cache/todos/v1`). Session, labels,
+assignees and board structure expire five minutes after their GitHub read.
+The Board view and `todos board` always read live fields, Status options and cards. `--fresh` bypasses cached issue pages and ignores metadata
+read before the command began, while reusing new metadata within the command. `TODOS_CACHE=off` disables cache files and keeps the
 in-process memo. Board cards, issue/PR details
 and comments are always read from GitHub. `todos doctor` reports cache usability
 without creating or writing cache files; deleting the cache directory is safe.
+Issue lists can trail changes made elsewhere by a few seconds and are never
+reused past ten minutes. `todos view`, `todos board` and `--fresh` always read
+GitHub live.
+For JSON results about the same issue, the later `as_of` is newer; when equal,
+prefer `todos view`. `as_of` is UTC RFC3339 with millisecond precision.
 
 ## TUI
 

@@ -106,7 +106,7 @@ func ParseProjectRef(text string, repo domain.RepoRef) (domain.ProjectRef, error
 - New performs no network/filesystem work. CLI injects one lazy cached repository resolver.
 - Session memoises viewer and canonical repo for five minutes from the GitHub read send time. It returns IssuesEnabled=false as data so PR/Board tabs remain reachable.
 - Issue-use-case methods check enabled issues and return issues_disabled when necessary.
-- Labels and assignable users expire after five minutes; resolved board metadata expires after 60 seconds; do not cache failures.
+- Labels and assignable users expire after five minutes; resolved board metadata expires after five minutes; do not cache failures.
 - Check metadata under mu, release before a fill, publish only if its generation is still current; duplicate concurrent metadata fills are acceptable.
 - Return deep copies. Snapshot selected board once per use case; never switch target board mid-write.
 - RefreshMetadata invalidates memoised metadata/session, calls backend.RefreshCredentials, then Session; a failed operation is never replayed.
@@ -123,6 +123,7 @@ Implemented by *github.Client without a github -> service import. Wiring checks 
 
 ```go
 type Backend interface {
+    ChangeToken(context.Context, domain.RepoRef, domain.NodeID) (domain.ChangeToken, error)
     CredentialKey(context.Context) (string, error)
     Credentials(context.Context) (domain.CredentialInfo, error)
     DoctorScopes(context.Context) (domain.CredentialInfo, error)
@@ -575,6 +576,28 @@ type CacheStore interface {
 - Each backend mutation result is observed once inside service. A not_found or invalid_input refusal drops structure and memo entries. Other errors retain them; no request is replayed. Quick-add wraps its run-local pacer with its own refusal observer, so both the parent and the run drop their memo on a refusal, including when a label is deleted mid-run.
 - Invalid payloads are misses. Validate required domain fields and session repository identity; board identity is separated by the board-reference key. Clone returned values. Recheck the space after a fill so a credential change advances the generation before publication; the generation check also prevents persistence, without a second identity comparison.
 - Doctor has a request-local memo with its start-time mark; nested checks reuse session/board values, and Viewer is read once. It never reads or fills cache files. Its cache check examines directory metadata only: no entry reads, file creation, writes or permission repairs.
-- Epoch storage is implemented now; content probes, epoch bumps around service writes and AsOf belong to Phase 11. No issue pages or board cards are persisted in Phase 10.
+- Structure and issue-list pages have separate policies. Board cards never use content storage.
 
 Tests: `TestStructure_CacheCannotChooseTheReadError`, `TestStructure_SessionFromAnotherRepositoryIsMiss`, `TestStructure_RepositoryCaseSharesSpace`, `TestStructure_RenamedRepositoryUsesCanonicalSpace`, `TestStructure_QuickRunRefusalDropsBothMemos`, `TestStructure_FreshNestedReadsReachEachBackendOnce` (file and nil stores), `TestStructure_NoFileStoreKeepsOriginalMemoRequestCounts` (marked fresh), `TestStructure_PersistentAcrossServicesAndFreshBypassesBoth`, `TestStructure_OneExpiryFromOriginalReadAt`, `TestStructure_ReadBeforeRefreshStoredAfterIsMiss`, `TestStructure_AnotherServiceReadHeldAcrossRefresh`, `TestStructure_CredentialChangesPartitionMemoAndFile`, `TestStructure_DoctorBypassesWarmCacheAndWritesNothing`, `TestStructure_WriteRefusalsDropOnlyOnNotFoundOrInvalid`.
+
+## Issue-list content cache (Phase 11)
+
+- `ListIssues` normalizes state, `@me`, labels (sorted/deduplicated for the key), default page size, repository case, and selected board ID. Key: JSON of method, repository, effective filter, board ID and raw cursor/page size. Space: `<credential>/content`.
+- With search, any fresh mark, no store or process-wide content disablement: no probe, no content lookup or fill. All other reads remain live.
+- Read epoch, send one `Backend.ChangeToken` per page, then look up bytes. Any probe error (including a refused project half) falls back to the ordinary live read and stores nothing. Cancellation still aborts promptly.
+- Hit only when the current probe has a usable quiet clock and token (including viewer, excluding ServerTime), current epoch and key match; readAt must be nonzero, not in the future and under ten minutes old. Validate the decoded page and clone its rows. Recheck credential and epoch before accepting it. Return `Page.AsOf = readAt`.
+- On a miss, capture readAt immediately before `Backend.ListIssues`; return AsOf zero. Persist only under a successful pre-read token whose server timestamp is present and whose newest issue and selected project's timestamps are each 5 seconds to ten years old. Without a board, the project half is ignored. An empty repository has no newest timestamp, so its page is not stored.
+- Recheck the credential before storing. Keep the epoch from before the probe/read: a fill held across a write may persist but cannot subsequently hit. There is no page payload memo or cursor-chain shortcut.
+- `beginChange(ctx) func()` bumps before entering each public single-issue mutation and on every return, including validation errors, no-ops and uncertain outcomes. The return bump uses an uncancelled context for credential discovery. A bump error disables stored content process-wide until exit and drops the whole credential content space, best effort, so other processes lose the stored pages too; it never fails the mutation. Epoch scope is the credential, across repositories.
+- `RunQuickAdd` additionally bumps its run-local core before its first write, after each item once writing starts, and on return. Dry runs and all-skipped runs do not bump. Existing sequential pacing and no-retry rules are unchanged.
+- `Board` uses remembered structure only to identify the selected project. On every call it reads fields/Status options exactly once, then live cards, and builds columns from those options. `boardInfo(ctx)` reports whether its metadata load already fetched fields on a cold resolution; only memo/file hits need the explicit `refreshBoardFields(ctx, info)` call. This avoids two field reads on a cold Board call.
+- Every successful Board field read publishes options in the memo and file for BoardInfo and status pickers, with a five-minute expiry from readAt and generation-safe fill. Cards are never cached. There is no unknown-option heal/retry; unknown status names on writes still refresh metadata once before rejection.
+
+```go
+func (s *core) boardInfo(context.Context) (info domain.BoardInfo, live bool, err error)
+func (s *core) refreshBoardFields(context.Context, domain.BoardInfo) (domain.BoardInfo, error)
+```
+
+Tests: `TestContent_UnchangedTokenServesOldPageAndOriginalAsOf`, `TestContent_EachIdentityDimensionMisses`, `TestContent_NormalizedKeysAndEachPageProbes`, `TestContent_ProbeFailuresReadLiveAndNeverStore`, `TestContent_QuietRule`, `TestContent_FreshSearchAndOffSkipProbeAndStorage`, `TestContent_CorruptPayloadsAndFutureReadsMiss`, `TestContent_CancelledProbeDoesNotReadOrServe`, `TestContent_EpochChangesDuringProbeCannotHit`, `TestContent_CredentialChangesDuringReadNeverPersistInOldSpace`, `TestContent_EveryChangeBumpsBeforeSendAndOnReturn`, `TestContent_UncertainWriteBumpsWithoutRetryAndInvalidatesAllRepositories`, `TestContent_FailedBumpDisablesStoredContentProcessWide`, `TestContent_QuickAddBumpsRunAndEachSettledItem`, `TestContent_ReadAtIsBeforeTheLivePageRequest`, `TestContent_PartitionChangesDuringProbeCannotHitOrFill`, `TestContent_UnusableProbeClockCannotServeWarmPage`, `TestContent_CredentialLookupFailureOnWriteDisablesContent`, `TestBoard_FieldRefreshCannotPublishAcrossMetadataInvalidation`, `TestBoard_FieldsLiveExactlyOnceAndSharedWithMetadata`, `TestBoard_ColdCallReadsFieldsOnlyOnce`, `TestBoard_LiveFieldsFailureDoesNotReadCards`, `TestStructure_ListReusesBoardForFiveMinutesThenExpires`, `TestStructure_UseBoardSharesFiveMinuteExpiry`. Two real file stores and held reads are covered in CLI's `TestContent_DiskReadHeldAcrossWriteNeverReusesOldEpoch`.
+
+Review regressions: `TestContent_EpochIsReadBeforeTheGatedProbe`, `TestContent_FailedBumpDropsPagesForOtherProcesses`, `TestContent_CancellationAtHitReturnAborts`, `TestContent_PageKeyFoldsRepositoryCase`.

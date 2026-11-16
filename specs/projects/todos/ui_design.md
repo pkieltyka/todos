@@ -678,11 +678,20 @@ Key choices that need care:
 | State | Header text | Colour |
 |---|---|---|
 | fresh | `● synced 12s ago` | success dot, muted text |
+| issue list from the cache | `● synced 4m ago · checked just now` (from 100 columns; `● synced 4m ago` below) | success dot, muted text |
 | syncing | `⠋ syncing…` | muted |
 | loading more | `⠋ 200/342` (in the sub-bar) | muted |
 | refresh failed | `⚠ stale · 4m ago` plus banner (§3.14) | warning |
 | auto-refresh paused (rate limit) | `⏸ auto-refresh paused · 4% left` | warning |
 | never loaded | `✗ offline` and the view's failed state | error |
+
+The issue list can be answered from the read cache. Its header then tells the
+data's real age, not the time of the check: `synced 4m ago`, plus
+`· checked just now` from 100 columns. Data read under a minute ago by another
+command reads `synced <1m ago`. `synced just now` appears only when the data
+was read by that check, and `r` always reads GitHub, so it ends there. The
+stale state and banner use the data's age too. The board and the pull request
+list are always live and keep the plain header.
 
 Stale data stays fully usable: the user can act on it. List rows are not
 greyed out, because that would hurt readability for a state that is often brief.

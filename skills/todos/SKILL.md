@@ -144,13 +144,17 @@ todos tui board
   by move/add. Creating an issue with a status requests placement; creating without one
   requests no placement.
 
-Session, labels and assignable users are cached for five minutes; board
-structure (selection and Status options) for one minute. The disposable private
+Session, labels, assignable users and board structure (selection and Status
+options) are cached for five minutes. The Board view and `todos board` always
+read live fields, Status options and cards. The disposable private
 cache is under `$XDG_CACHE_HOME/todos/v1` (default `~/.cache/todos/v1`).
-Use `--fresh` to reject metadata read before the command started; newly read
-metadata is shared within the command. Set `TODOS_CACHE=off` to disable cache
+Use `--fresh` to bypass cached issue pages and reject metadata read before the
+command started; newly read metadata is shared within the command. Set `TODOS_CACHE=off` to disable cache
 files while keeping the in-process memo. Issue/PR detail, comments and board cards stay
 live. Doctor always reads GitHub fresh and never creates or writes the cache.
+Issue lists can trail changes made elsewhere by a few seconds and are never
+reused past ten minutes. `todos view`, `todos board` and `--fresh` always read
+GitHub live.
 
 ## Quick add
 
@@ -187,6 +191,11 @@ one `{"error": Error}` document on stderr. Two exceptions:
   including first-write rejection or partial failure, with an error on stderr.
   Parse/preflight failures leave stdout empty.
 
+`list`, `view` and `board` include `as_of`, the oldest data read time in that
+document, in UTC RFC3339 with millisecond precision. For the same issue, the
+document with the later `as_of` is newer; when equal, prefer `todos view`.
+A cache hit retains its original read time rather than the latest check time.
+
 Arrays are always `[]`, never null. Times are UTC RFC3339 strings; optional
 ones are null. Authors are login strings or null for deleted accounts.
 Only view results contain body/comments. Within a major version, fields may
@@ -194,15 +203,15 @@ be added, but are not removed, renamed or retyped. Shapes below use type
 notation; `?` means the field is conditionally present.
 
 ```text
-list:          {issues:[Issue], total:int, truncated:bool}
-view:          Issue + {body:string, comments:[Comment], comments_truncated:bool}
+list:          {as_of:string, issues:[Issue], total:int, truncated:bool}
+view:          Issue + {as_of:string, body:string, comments:[Comment], comments_truncated:bool}
 change:        {issue:Issue, changed:bool}
 comment:       {issue:Issue, comment:Comment}
 rm:            {deleted:int}
 pr list:       {pull_requests:[PullRequest], total:int, truncated:bool}
 pr view:       PullRequest + {body:string, mergeable:"mergeable"|"conflicting"|"unknown",
                               closes:[int], comments:[Comment], comments_truncated:bool}
-board:         {project:Project, columns:[{status:string|null, cards:[Card]}],
+board:         {as_of:string, project:Project, columns:[{status:string|null, cards:[Card]}],
                 hidden_items:int, truncated:bool}
 board list:    {projects:[Project], selected:Project|null}
 board use:     {project:Project}

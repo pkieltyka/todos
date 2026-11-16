@@ -60,6 +60,21 @@ func TestGolden(t *testing.T) {
 			h.fail(g, &domain.Error{Kind: domain.ErrAuth, Message: "not authenticated"})
 			return h
 		}},
+		// The header for a list answered from the read cache (cache.md 5): a
+		// live read is issue_list_loaded.
+		{"issue_list_cache_hit", func(t *testing.T) *harness {
+			h, c := cacheHarness(t, richFixture())
+			h.advance(3 * time.Minute)
+			autoHit(h, c, fixtureNow.Add(30*time.Second)) // data read 3m31s ago, checked now
+			return h
+		}},
+		{"issue_list_cache_manual_r", func(t *testing.T) *harness {
+			h, c := cacheHarness(t, richFixture())
+			h.advance(3 * time.Minute)
+			autoHit(h, c, fixtureNow.Add(30*time.Second))
+			h.press("r") // fresh: read live
+			return h
+		}},
 		{"issue_list_closed", func(t *testing.T) *harness {
 			fx := richFixture()
 			fx.Issues[4].Issue.ClosedAt = ptr(fixtureNow.Add(-10 * time.Minute)) // #2 closed after #3
@@ -105,7 +120,7 @@ func TestGolden(t *testing.T) {
 		}},
 		{"board_setup_missing_scope", func(t *testing.T) *harness {
 			h := newHarness(t, richFixture(), withStart(ViewBoard), withLazy())
-			g := h.hold("BoardInfo", 0)
+			g := h.hold("Board", 0) // the board load reads Board first
 			h.boot()
 			h.fail(g, &domain.Error{Kind: domain.ErrMissingScope, Message: "missing project scope"})
 			return h

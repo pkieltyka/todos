@@ -69,6 +69,7 @@ func assignmentResult(ack domain.Issue, expected []string) error {
 	return nil
 }
 func (s *core) CreateIssue(ctx context.Context, in domain.NewIssue) (domain.Change, error) {
+	defer s.beginChange(ctx)()
 	if err := validateTitle(in.Title); err != nil {
 		return domain.Change{}, err
 	}
@@ -115,6 +116,7 @@ func (s *core) CreateIssue(ctx context.Context, in domain.NewIssue) (domain.Chan
 	return change, nil
 }
 func (s *core) EditIssue(ctx context.Context, n int, in domain.EditIssue) (domain.Change, error) {
+	defer s.beginChange(ctx)()
 	if in.Title == nil && in.Body == nil {
 		return domain.Change{}, invalid("edit requires a title or body")
 	}
@@ -149,6 +151,7 @@ func (s *core) EditIssue(ctx context.Context, n int, in domain.EditIssue) (domai
 	return domain.Change{Issue: preservePlacement(ack, d.Issue), Changed: true}, nil
 }
 func (s *core) UpdateAssignees(ctx context.Context, n int, add, remove []string) (domain.Change, error) {
+	defer s.beginChange(ctx)()
 	adds, err := s.usersForNames(ctx, add)
 	if err != nil {
 		return domain.Change{}, err
@@ -232,6 +235,7 @@ func (s *core) UpdateAssignees(ctx context.Context, n int, add, remove []string)
 	return domain.Change{Issue: i, Changed: changed}, nil
 }
 func (s *core) Reassign(ctx context.Context, n int, names []string) (domain.Change, error) {
+	defer s.beginChange(ctx)()
 	users, err := s.usersForNames(ctx, names)
 	if err != nil {
 		return domain.Change{}, err
@@ -259,6 +263,7 @@ func (s *core) Reassign(ctx context.Context, n int, names []string) (domain.Chan
 	return domain.Change{Issue: i, Changed: true}, assignmentResult(i, expected)
 }
 func (s *core) UpdateLabels(ctx context.Context, n int, add, remove []string) (domain.Change, error) {
+	defer s.beginChange(ctx)()
 	adds, err := s.labelsForNames(ctx, add)
 	if err != nil {
 		return domain.Change{}, err
@@ -313,6 +318,7 @@ func (s *core) UpdateLabels(ctx context.Context, n int, add, remove []string) (d
 	return domain.Change{Issue: i, Changed: changed}, nil
 }
 func (s *core) Comment(ctx context.Context, n int, body string) (domain.CommentResult, error) {
+	defer s.beginChange(ctx)()
 	if strings.TrimSpace(body) == "" {
 		return domain.CommentResult{}, invalid("comment must not be blank")
 	}
@@ -331,6 +337,7 @@ func (s *core) Comment(ctx context.Context, n int, body string) (domain.CommentR
 	return result, nil
 }
 func (s *core) Close(ctx context.Context, n int, opts domain.CloseOptions) (domain.Change, error) {
+	defer s.beginChange(ctx)()
 	if opts.Reason == "" {
 		opts.Reason = "completed"
 	}
@@ -376,6 +383,7 @@ func (s *core) Close(ctx context.Context, n int, opts domain.CloseOptions) (doma
 	return domain.Change{Issue: preservePlacement(ack, i), Changed: true}, nil
 }
 func (s *core) Reopen(ctx context.Context, n int) (domain.Change, error) {
+	defer s.beginChange(ctx)()
 	d, err := s.mutationTarget(ctx, n)
 	if err != nil {
 		return domain.Change{}, err
@@ -390,6 +398,7 @@ func (s *core) Reopen(ctx context.Context, n int) (domain.Change, error) {
 	return domain.Change{Issue: preservePlacement(ack, d.Issue), Changed: true}, nil
 }
 func (s *core) Delete(ctx context.Context, n int) error {
+	defer s.beginChange(ctx)()
 	d, err := s.mutationTarget(ctx, n)
 	if err != nil {
 		return err

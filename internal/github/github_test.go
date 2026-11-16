@@ -83,7 +83,7 @@ func conn(nodes any, total int, more bool, cursor any) map[string]any {
 	return map[string]any{"nodes": nodes, "totalCount": total, "pageInfo": map[string]any{"hasNextPage": more, "endCursor": cursor}}
 }
 func TestDocuments_AllOperationsAndFragments(t *testing.T) {
-	if len(documents) != 32 {
+	if len(documents) != 33 {
 		t.Fatalf("operations: %d", len(documents))
 	}
 	references := regexp.MustCompile(`\.\.\.([A-Za-z][A-Za-z0-9_]*)`)

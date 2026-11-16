@@ -219,6 +219,12 @@ func (s *core) RunQuickAdd(ctx context.Context, plan domain.QuickAddPlan, opts d
 	result = initialQuickResult(p, opts.DryRun)
 	defer func() { countQuickResult(&result); err = quickRunError(err, result) }()
 	run := s.quickCore(board)
+	started := false
+	defer func() {
+		if started {
+			run.bumpContent(context.WithoutCancel(ctx))
+		}
+	}()
 	for j := range result.Items {
 		row := &result.Items[j]
 		if ctx.Err() != nil {
@@ -228,6 +234,9 @@ func (s *core) RunQuickAdd(ctx context.Context, plan domain.QuickAddPlan, opts d
 			return result, typed(context.Canceled)
 		}
 		if row.Result == "skipped" || opts.DryRun {
+			if started {
+				run.bumpContent(context.WithoutCancel(ctx))
+			}
 			if e := quickProgress(opts, j, "settled", *row); e != nil {
 				return result, e
 			}
@@ -235,6 +244,10 @@ func (s *core) RunQuickAdd(ctx context.Context, plan domain.QuickAddPlan, opts d
 		}
 		itemErr := quickProgress(opts, j, "creating", *row)
 		if itemErr == nil {
+			if !started {
+				run.bumpContent(ctx)
+				started = true
+			}
 			change, e := run.CreateIssue(ctx, domain.NewIssue{Title: row.Item.Title, Body: row.Item.Body, Assignees: p.Options.Assignees, Labels: p.Options.Labels})
 			itemErr = e
 			recordQuickIssue(row, change, e)
@@ -266,6 +279,9 @@ func (s *core) RunQuickAdd(ctx context.Context, plan domain.QuickAddPlan, opts d
 			if row.Result == "unattempted" {
 				row.Result = "failed"
 			}
+		}
+		if started {
+			run.bumpContent(context.WithoutCancel(ctx))
 		}
 		if e := quickProgress(opts, j, "settled", *row); e != nil {
 			return result, e

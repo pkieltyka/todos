@@ -85,7 +85,7 @@ func (s *IssueList) Sync(c *Ctx) {
 
 func (s *IssueList) bodyHeight(c *Ctx) int {
 	h := c.Frame.Body.H
-	if banner(c, c.Store.Issues.Err, len(c.Store.Issues.Numbers) > 0, c.Store.Issues.LoadedAt) != "" {
+	if banner(c, c.Store.Issues.Err, len(c.Store.Issues.Numbers) > 0, c.Store.Issues.DataAt) != "" {
 		h--
 	}
 	return h
@@ -214,7 +214,7 @@ func (s *IssueList) View(c *Ctx, area Rect) string {
 	t := c.Theme
 	l := c.Store.Issues
 	var lines []string
-	if b := banner(c, l.Err, len(l.Numbers) > 0, l.LoadedAt); b != "" {
+	if b := banner(c, l.Err, len(l.Numbers) > 0, l.DataAt); b != "" {
 		lines = append(lines, b)
 	}
 	h := area.H - len(lines)
