@@ -12,9 +12,16 @@ The build is complete; nothing is in progress.
 - [ ] A board's own automations have the last word: on this board, a new issue created with No status usually ends up in Backlog
 - [ ] Detection of the board auto-add rejection depends on the wording of GitHub's error message
 - [ ] While the repository is private, `go install github.com/pkieltyka/todos@latest` needs `GOPRIVATE=github.com/pkieltyka/todos`; tried and working that way on 2026-11-14
+- [ ] A list can trail a change made elsewhere by a few seconds (accepted by Peter)
+- [ ] Changes made by dragging a card in the GitHub web UI, and milestone changes, were never tested against the change token
+- [ ] Pull request lists and search are not cached
+- [ ] @reviewer is out of OpenRouter credits
+- [ ] The cache commits are not pushed
 
 ## Done
 
+- [x] Phase 10: cache structure — @lead-dev — done 2026-11-16, committed as `94eb0de` on local master, not pushed; design in `specs/projects/todos/components/cache.md`; design reviewed by @lead-dev, @reviewer and @frontend-dev, code cross-reviewed by @frontend-dev and @cto (@reviewer ran out of OpenRouter credits during Phase 10); disposable on-disk cache under `~/.cache/todos/v1`
+- [x] Phase 11: cache content — @lead-dev — done 2026-11-16, committed as `2dc5503` on local master, not pushed; same reviews and design doc; session, labels, assignable users and board structure reused for 5 minutes; issue list pages used only after a one-point probe confirms GitHub's change token is unchanged, never past 10 minutes; board cards never cached, board columns read live; new: global `--fresh`, `TODOS_CACHE=off`, a seventh doctor check, `as_of` in the list/view/board JSON; measured on the real repository: warm `todos list` is 1 request / 1 point vs 6 / 7 cold; TUI idling 10 minutes on the issue list spends 30 points with the cache vs 58 without
 - [x] Pull request 83 (todos v1), opened by @lead-dev, merged to `master` by Peter on 2026-11-14 as `a33a677`; CI passed on Linux and macOS
 - [x] Pull request views ran on real data: while PR 83 was open, @lead-dev ran `todos pr list` and `todos pr view` with and without `--json`, and all four showed correct output
 - [x] Closed issues list in the TUI ordered by most recently closed — commit `a646c89`, reviewed by @reviewer with no findings
@@ -46,6 +53,9 @@ The build is complete; nothing is in progress.
 - @cto is the only one who commits.
 - Peter asked that the team does not ask him questions; @cto decides and reports.
 - v1 is merged to `master` (PR 83, `a33a677`), and so is the rename cleanup with the detail-screen fix (PR 84, `3248c4b`); work now happens on `master`; the team pushes only when Peter asks.
+- The board is always live.
+- A few seconds of staleness on issue lists is acceptable.
+- Fresh is a time, not a flag.
 - Each phase: developer, `make check`, @reviewer, fixes, @cto review and commit.
 - When two phases finish together, the developers cross-review each other in addition to @reviewer.
 - The shared test fake is a direct in-memory implementation in `internal/service/servicetest`.
