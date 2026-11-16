@@ -18,7 +18,6 @@ install:
 
 clean:
 	rm -rf bin
-	rm -f todos
 
 help:
 	@printf '%s\n' \
@@ -26,5 +25,5 @@ help:
 	  'test     Run tests without the race detector' \
 	  'check    Check formatting, vet and race tests' \
 	  'install  Install todos with go install' \
-	  'clean    Remove ./bin/ and stray ./todos' \
+	  'clean    Remove ./bin/' \
 	  'help     Show available targets'

@@ -137,7 +137,7 @@ all commands, JSON shapes, exit codes, and partial/uncertain recovery.
 - `make test`: run tests without the race detector.
 - `make check`: check formatting, vet and race tests without GitHub access.
 - `make install`: install with `go install .`.
-- `make clean`: remove `./bin/` and any stray `./todos` binary.
+- `make clean`: remove `./bin/`.
 - `make help`: print the available targets.
 
 Opt-in live tests are read-only and require an explicit repository:
