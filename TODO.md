@@ -15,13 +15,13 @@ The build is complete; nothing is in progress.
 - [ ] A list can trail a change made elsewhere by a few seconds (accepted by Peter)
 - [ ] Changes made by dragging a card in the GitHub web UI, and milestone changes, were never tested against the change token
 - [ ] Pull request lists and search are not cached
-- [ ] @reviewer is out of OpenRouter credits
-- [ ] The cache commits are not pushed
 
 ## Done
 
-- [x] Phase 10: cache structure — @lead-dev — done 2026-11-16, committed as `94eb0de` on local master, not pushed; design in `specs/projects/todos/components/cache.md`; design reviewed by @lead-dev, @reviewer and @frontend-dev, code cross-reviewed by @frontend-dev and @cto (@reviewer ran out of OpenRouter credits during Phase 10); disposable on-disk cache under `~/.cache/todos/v1`
-- [x] Phase 11: cache content — @lead-dev — done 2026-11-16, committed as `2dc5503` on local master, not pushed; same reviews and design doc; session, labels, assignable users and board structure reused for 5 minutes; issue list pages used only after a one-point probe confirms GitHub's change token is unchanged, never past 10 minutes; board cards never cached, board columns read live; new: global `--fresh`, `TODOS_CACHE=off`, a seventh doctor check, `as_of` in the list/view/board JSON; measured on the real repository: warm `todos list` is 1 request / 1 point vs 6 / 7 cold; TUI idling 10 minutes on the issue list spends 30 points with the cache vs 58 without
+- [x] `notes/` folder — written 2026-11-16 by @cto, @lead-dev and @frontend-dev, fact-checked by @frontend-dev and @reviewer; five numbered notes (start here, how the work is done, GitHub in practice, core build notes, TUI build notes) so the project can continue without the agent sessions; committed as `da648f8` on local master, not pushed; `tools/measure/measure.py`, the read-only measurement script, went in with it
+- [x] Four stale spec sections corrected (`cache.md` 8 on `as_of`, `github.md` verification sources, `service.md` file map, `tui.md` 7.6 and 18.3), committed as `0192dec` on local master, not pushed
+- [x] Phase 10: cache structure — @lead-dev — done 2026-11-16, committed as `94eb0de` and pushed to master; design in `specs/projects/todos/components/cache.md`; design reviewed by @lead-dev, @reviewer and @frontend-dev, code cross-reviewed by @frontend-dev and @cto (@reviewer ran out of OpenRouter credits during Phase 10); disposable on-disk cache under `~/.cache/todos/v1`
+- [x] Phase 11: cache content — @lead-dev — done 2026-11-16, committed as `2dc5503` and pushed to master; same reviews and design doc; session, labels, assignable users and board structure reused for 5 minutes; issue list pages used only after a one-point probe confirms GitHub's change token is unchanged, never past 10 minutes; board cards never cached, board columns read live; new: global `--fresh`, `TODOS_CACHE=off`, a seventh doctor check, `as_of` in the list/view/board JSON; measured on the real repository: warm `todos list` is 1 request / 1 point vs 6 / 7 cold; TUI idling 10 minutes on the issue list spends 30 points with the cache vs 58 without
 - [x] Pull request 83 (todos v1), opened by @lead-dev, merged to `master` by Peter on 2026-11-14 as `a33a677`; CI passed on Linux and macOS
 - [x] Pull request views ran on real data: while PR 83 was open, @lead-dev ran `todos pr list` and `todos pr view` with and without `--json`, and all four showed correct output
 - [x] Closed issues list in the TUI ordered by most recently closed — commit `a646c89`, reviewed by @reviewer with no findings
@@ -61,10 +61,10 @@ The build is complete; nothing is in progress.
 - The shared test fake is a direct in-memory implementation in `internal/service/servicetest`.
 - Reviews of code go into the `reviews/` folder, which git ignores.
 - Commits are made by path, so one track's unfinished work never lands in the other's commit.
-- 68 throwaway issues, numbers 15 to 82, were created and deleted during live testing; issues 1 to 14 are the real backlog, and issue 10 was closed last.
+- 70 throwaway issues, numbers 15 to 82 plus 85 and 86, were created and deleted during live testing; issues 1 to 14 are the real backlog, and issue 10 was closed last.
 - The project board has a GitHub workflow that closes an issue when its card moves to Done — expected behaviour.
 - Removing an assignee or label is judged against the issue itself, so a person who left the organisation can still be unassigned.
-- All nine phases are committed on branch `todos-v1`; the last code commit is `c504e3f`.
+- All nine phases are committed on branch `todos-v1`, which is local only — its remote was deleted after the merge — and its 18 commits hold the per-phase history of v1; the last code commit there is `c504e3f`.
 - A local build reports the version control stamp as its version.
 - @lead-dev's session was compacted at the Phase 4 boundary.
 - Product and design decisions (Peter and @cto):
@@ -87,3 +87,4 @@ The build is complete; nothing is in progress.
   - Repository resolution: `--repo`, then `GH_REPO`, then the git remote.
   - Implementation ownership: @lead-dev for `domain`, `github`, `service`, `quickadd`, `config`, `cli`; @frontend-dev for `tui` and `markdown`.
   - Check command for every phase: `gofmt -l .` and `go vet ./...` and `go test -race ./...`
+  - A lesson that fits no spec goes into a new numbered file in `notes/`.
