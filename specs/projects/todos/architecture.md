@@ -27,8 +27,9 @@ component doc is wrong. References like (4.4) point to the functional spec and
    quick add) is written once, in the service.
 2. **GitHub is the only source of truth.** No database. A disposable on-disk
    cache holds copies of GitHub data under the rules in `components/cache.md`:
-   issue lists and boards are used only after GitHub confirms nothing changed,
-   and slow-changing structure is reused for minutes. Deleting the cache is
+   issue lists are used only after GitHub confirms nothing changed, and
+   slow-changing structure is reused for minutes. Board cards are never
+   cached. Deleting the cache is
    always safe. The other files are the config file and quick-add drafts.
 3. **The service is synchronous; concurrency belongs to the caller.** Every
    service method takes a context, blocks, and returns. The TUI turns calls
@@ -96,16 +97,16 @@ Import rules, enforced by a test that inspects imports
 | Authenticated user, repository | `service`, memoised for 5 minutes, persisted in the cache | across processes |
 | Labels, assignable users | `service`, memoised for 5 minutes, persisted in the cache | across processes |
 | Resolved board with its Status field and options | `service`, memoised for 60 seconds, persisted in the cache | across processes |
-| Issue list pages and board item pages, each with the change token it was read under | `service` policy, `cache` files | until the token changes, a write through `todos`, or 10 minutes |
+| Issue list pages, each with the change token it was read under | `service` policy, `cache` files | until the token changes, a write through `todos`, or 10 minutes |
 | Last seen rate-limit numbers | `github`, read through `service.RateLimit()` | process |
 | Issues, pull requests, board contents, comments | `tui` store | TUI session |
 | In-flight changes and their optimistic effect | `tui` | until settled |
 | Board choice per repository | `config` file | persistent |
 | Quick-add draft per repository | `config` draft files | until sent or discarded |
 
-The service never caches one issue, one pull request, comments, pull request
-lists or search results. Issue list pages and board pages are cached only
-under the probe rule in `components/cache.md`.
+The service never caches board cards, one issue, one pull request, comments,
+pull request lists or search results. Issue list pages are cached only under
+the probe rule in `components/cache.md`.
 
 ## 4. The service seam
 

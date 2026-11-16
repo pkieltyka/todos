@@ -176,8 +176,9 @@ moved to Backlog by the board within five seconds.
 - `r` refreshes the current view. The visible view also refreshes
   automatically every 60 seconds, except while a form, picker or confirmation
   is open, and except when the rate limit is nearly used up (10).
-- An automatic refresh of an issue list or a board first asks GitHub whether
-  anything changed and reloads only if it did (9.1). `r` always reloads.
+- An automatic refresh of an issue list first asks GitHub whether anything
+  changed and reloads only if it did (9.1). `r` always reloads. The board is
+  always reloaded in full.
 - The header always shows sync state: syncing, time since last sync, or an
   error. When a refresh fails, the last good data stays on screen, marked stale.
 - After a refresh, the selection stays on the same issue (by number, not by
@@ -758,15 +759,16 @@ To spend less of the GitHub allowance, `todos` keeps a disposable cache under
 `$XDG_CACHE_HOME/todos/` (default `~/.cache/todos/`), shared by the CLI and
 the TUI. It holds copies of two kinds of data:
 
-- **Issue lists and boards.** Before a stored copy is used, `todos` asks GitHub
-  one small question: has anything in this repository or on this board
-  changed? The copy is used only if the answer is no. There is no timer.
+- **Issue lists.** Before a stored copy is used, `todos` asks GitHub one small
+  question: has anything in this repository or on its board changed? The copy
+  is used only if the answer is no. There is no timer.
 - **Slow-changing structure.** The signed-in user, the repository, labels and
   assignable users are reused for 5 minutes; the board and its Status columns
   for 1 minute.
 
-Everything else is always read from GitHub: one issue, one pull request,
-comments, pull request lists and search.
+Everything else is always read from GitHub: the cards of a board, one issue,
+one pull request, comments, pull request lists and search. The board is always
+live.
 
 What a user can rely on:
 
@@ -775,7 +777,7 @@ What a user can rely on:
   automation) shows on the first read after GitHub's own "last updated" times
   reflect it. That is normally within about ten seconds; GitHub gives no
   guarantee.
-- No stored list or board is used for longer than 10 minutes.
+- No stored list is used for longer than 10 minutes.
 - A label, user or status that `todos` does not know is looked up again on
   GitHub before a command is rejected.
 - `--fresh` (CLI) and `r` (TUI) read everything from GitHub.

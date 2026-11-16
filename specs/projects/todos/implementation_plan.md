@@ -64,7 +64,7 @@ diff, the developer fixes what is found, @cto reviews and commits. @pm updates
   the `doctor` cache check; the TUI marks a manual refresh fresh. Measured
   cold and warm on the real repository. Design: `components/cache.md`.
 - [ ] **Phase 11: Cache, content** (core, with a small TUI change).
-  `ChangeToken` and its document. Probe-validated issue list pages and board
-  pages, the quiet rule, the 10-minute limit, write epochs bumped by every
-  change. `AsOf` on pages and boards, used by the TUI store. Measured cold and
-  warm on the real repository.
+  `ChangeToken` and its document. Probe-validated issue list pages, the quiet
+  rule, the 10-minute limit, write epochs bumped by every change. Board cards
+  stay live. `AsOf` on pages, used by the TUI store. Measured cold and warm on
+  the real repository.

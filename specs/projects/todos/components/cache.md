@@ -29,8 +29,12 @@ GitHub is a shared, remote store. Another person, an agent or a board
 automation can change an issue at any moment, and `todos` is not told. GraphQL
 has no conditional requests, so there is no free "has this changed?" answer.
 
-The cache therefore never serves issue lists or boards on a timer. Before each
-use it asks GitHub one cheap question, the **probe** (1 point, measured), which
+**The board is always live.** Peter's decision: the cards of a board, in the
+Board view and in `todos board`, are read from GitHub every time and are never
+cached.
+
+Issue lists are cached, but never on a timer. Before each use the cache asks
+GitHub one cheap question, the **probe** (1 point, measured), which
 returns a **change token**. A stored page is used only when the token is the
 one it was stored under.
 
@@ -54,12 +58,14 @@ for up to about 7 seconds). So the promise is:
 
 | Kind | What | Rule |
 |---|---|---|
-| **Content** | issue list pages (not search), board item pages | Used only when a probe made for this call returns the token the page was stored under, the page is under 10 minutes old, and no write has happened since it was read. |
+| **Content** | issue list pages (not search) | Used only when a probe made for this call returns the token the page was stored under, the page is under 10 minutes old, and no write has happened since it was read. |
 | **Structure** | session (viewer and repository), labels, assignable users, the resolved board with its Status field and options | Reused for a fixed time: 5 minutes for session, labels and users; 1 minute for the board, as today. Misses and failures heal themselves (section 6). |
-| **Never cached** | one issue, one pull request, comments, pull request lists, search, every write, `doctor` | Always GitHub. |
+| **Never cached** | board cards, one issue, one pull request, comments, pull request lists, search, every write, `doctor` | Always GitHub. |
 
 Why those are never cached:
 
+- The board is where several people move cards at once, and a card in the
+  wrong column is the most misleading thing `todos` could show. It stays live.
 - One issue or pull request costs about one point, the same as a probe, and
   these are the reads the TUI uses to learn the truth after a change.
 - Pull request lists show check results, and a finished CI run does not move
@@ -78,9 +84,9 @@ the board and the normalised filter. So:
   ```go
   // service
   type CacheStore interface {
-      // Get returns the stored bytes and the time they were stored.
-      Get(space, key string) (data []byte, storedAt time.Time, ok bool)
-      Put(space, key string, data []byte, storedAt time.Time)
+      // Get returns the stored bytes and the time they were read from GitHub.
+      Get(space, key string) (data []byte, readAt time.Time, ok bool)
+      Put(space, key string, data []byte, readAt time.Time)
       // Epoch returns the space's current write epoch; Bump changes it.
       Epoch(space string) string
       Bump(space string)
@@ -90,6 +96,13 @@ the board and the normalised filter. So:
 
   A nil store means no cache. Every method is best effort and reports nothing:
   a store that cannot read or write behaves as empty.
+
+  **`readAt` is the moment the request to GitHub was sent, taken before the
+  call, never the moment the file was written.** Every age in this document
+  (5 minutes, 1 minute, 10 minutes), the `RefreshMetadata` cutoff and `AsOf`
+  are measured from it. A read that was in flight when something invalidated
+  it therefore always carries a time from before the invalidation, however
+  late its file is written.
 
 - `internal/cache` implements it with files. It imports `domain` only. It knows
   nothing about issues or tokens.
@@ -101,12 +114,12 @@ the board and the normalised filter. So:
   CredentialKey(ctx context.Context) (string, error) // opaque; see section 7
   ```
 
-- The `Service` interface does not change. `domain.Page` and `domain.Board`
-  gain one field, `AsOf time.Time` (section 5).
+- The `Service` interface does not change. `domain.Page` gains one field,
+  `AsOf time.Time` (section 5).
 
 The structure cache is the service's existing metadata memo, made persistent.
 There is one expiry per value, not a memory timer stacked on a disk timer: the
-memo and the file share the same stored-at time.
+memo and the file share the same `readAt`.
 
 ## 5. Content: the read path
 
@@ -155,15 +168,15 @@ What @lead-dev observed on the live repository and board:
 
 ### One call
 
-`ListIssues` (without search), per page, and `Board`, once per call:
+`ListIssues` (without search), per page:
 
 1. If the call is marked fresh, or the store is nil: read GitHub. Store the
    result if rule 4 allows. Done.
 2. Read the space's epoch. Probe. If the probe fails for any reason, read
    GitHub and store nothing: a failed probe is never evidence.
 3. Look up the page. Use it when its token equals the probe's, its epoch equals
-   the one read in step 2, and it was stored under 10 minutes ago. Return it
-   with `AsOf` set to its stored time.
+   the one read in step 2, and its `readAt` is under 10 minutes ago. Return it
+   with `AsOf` set to its `readAt`.
 4. Otherwise read GitHub. Store the page, with the probe's token and the epoch
    from step 2, only when **the quiet rule** holds: `ServerTime` is present, and
    `ServerTime - NewestUpdated` and (with a board) `ServerTime - ProjectUpdated`
@@ -171,23 +184,29 @@ What @lead-dev observed on the live repository and board:
 
 The probe is always sent **before** the read. If something changes between
 the two, the page is newer than its token says, the next probe differs, and
-the page is read again: one extra read, never a wrong hit.
+the page is read again. A stored page is therefore never older than what its
+token vouches for; it can be newer, which costs one extra read. The same
+holds when two calls in one process interleave.
 
 **Every page of an issue list is probed.** There is no remembered cursor chain:
 a cursor is not a snapshot, and remembering one would let page 2 be served on
-page 1's evidence. A 500-issue list unchanged costs 5 points, not 15. `Board`
-reads all its pages inside one call, so it probes once: 1 point, not 20.
+page 1's evidence. A 500-issue list unchanged costs 5 points, not 15.
 
-`ListIssues` asks for board placement when a board is selected, so its token
-includes the project half. Without a board the probe is sent with
+`Board` does not probe and does not use the store: it reads every page from
+GitHub, as today. It also heals stale structure: if a card carries a Status
+option that the remembered board does not list, `Board` reads the board's
+fields again from GitHub once and builds the columns from that.
+
+`ListIssues` asks for board placement when a board is selected, so an issue
+list row shows its board status. Its token therefore includes the project
+half, and any board change makes the stored list pages unusable. Without a board the probe is sent with
 `withProject: false`. If the project half is refused (a missing scope), the
 call is read from GitHub and not stored; the issue list must keep working
 exactly as it does today.
 
 ### `AsOf`
 
-`domain.Page[T].AsOf` and `domain.Board.AsOf` say when the data was really read
-from GitHub. Zero means "by this call". The TUI stamps what it puts in its
+`domain.Page[T].AsOf` says when the data was really read from GitHub. Zero means "by this call". The TUI stamps what it puts in its
 store with `AsOf` when it is set, and with its own send time otherwise.
 
 This is what keeps the TUI's rule "stale data never wins" true whatever the
@@ -200,7 +219,14 @@ single-issue reads, which are never cached.
 
 1. **Our own writes.** Every service method that can change GitHub bumps the
    content epoch before it sends anything and again when it returns, whatever
-   the outcome, including an uncertain one. A page records the epoch read
+   the outcome, including an uncertain one. The complete list: `CreateIssue`,
+   `EditIssue`, `UpdateAssignees`, `Reassign`, `UpdateLabels`, `Close`,
+   `Reopen`, `Comment`, `Delete`, `SetStatus`, `BoardAdd`, `RemoveFromBoard`
+   and `RunQuickAdd`. `RunQuickAdd` builds its own run-local core, so it bumps
+   itself: before its first write, after every item, and when it returns. This
+   matters because our own write's timestamp can trail the data like anyone
+   else's: without the bump, `todos quick-add` followed by `todos list` could
+   be answered from the page stored before the items existed. A page records the epoch read
    before its own request was sent, and is used only while that epoch is still
    current. So a read that was in flight across a write can finish and store
    its page, in this process or another, and the page is simply never used.
@@ -212,9 +238,10 @@ single-issue reads, which are never cached.
 2. **Other people's writes.** The probe, then the 10-minute limit.
 3. **Structure that is missing.** The service already calls `RefreshMetadata`
    once before it rejects an unknown label, user or status. `RefreshMetadata`
-   drops the memo, records the moment, and ignores any stored structure older
-   than that moment, so a file rewritten by another process cannot bring the
-   old answer back.
+   drops the memo, records the moment, and ignores any stored structure whose
+   `readAt` is before that moment. Because `readAt` is the send time, a file
+   written late by another process from a read that began earlier cannot bring
+   the old answer back.
 4. **Structure that is gone.** When a write fails as not found or as invalid
    input, the service drops its structure entries, so the next command reads
    the truth.
@@ -255,17 +282,32 @@ single-issue reads, which are never cached.
 - Limits: an entry over 4 MB is not stored. At most once per process, on its
   first write, the store removes files not modified for 24 hours and
   credential directories not modified for 30 days.
-- A stored time in the future is a miss.
+- A `readAt` in the future is a miss. Ages are measured on the local clock, so
+  a local clock that runs slow stretches every limit by the same amount; the
+  file's modification time is never used as evidence of age.
 - No in-memory copy of content: one copy on disk, so an epoch bump in any
   process counts for all of them.
-- It holds list rows and board cards (titles, labels, logins, numbers), never
-  issue bodies or comments. What is read back is ordinary domain data and goes
+- It holds issue list rows (titles, labels, logins, numbers, board status)
+  and structure, never issue bodies, comments or board cards. What is read back is ordinary domain data and goes
   through the same sanitising as a live read before it is drawn or printed.
 - **It can never fail a command.** `TODOS_CACHE=off` turns it off. go-gh's own
   HTTP cache stays disabled. `todos doctor` reports the cache directory and
   whether it is usable, without creating it.
 
-## 8. What it saves
+## 8. What an agent sees
+
+The cache must not be invisible to the programs that read `todos` output.
+
+- `todos list --json` gains one field, `as_of`: the time its rows were read
+  from GitHub (the oldest `AsOf` of the pages returned; the time of the call
+  for a live read). An agent holding a list and a `todos view` of the same
+  issue can tell which is newer. Text output does not change.
+- The skill and the README state the rule in section 2 in two sentences: issue
+  lists can trail a change made elsewhere by a few seconds and are never
+  reused past 10 minutes; `todos view`, `todos board` and `--fresh` are always
+  live.
+
+## 9. What it saves
 
 Measured costs: issue list page with board placement 3 points, board page 2,
 probe 1.
@@ -274,16 +316,16 @@ probe 1.
 |---|---|---|
 | Idle TUI on a 500-issue list, per hour | about 900 points | about 300 probes + 6 full reloads: about 390 |
 | Idle TUI on a 100-issue list, per hour | about 180 | 60 probes + 6 reloads: about 78 |
-| Idle TUI on a 1,000-card board, per hour | about 1,200 | 60 probes + 6 reloads: about 180 |
-| `todos board`, nothing changed | structure reads + 2 points a page | 1 probe |
+| Idle TUI on a board, per hour | 60 reloads x 2 points a page | the same: the board is live |
+| `todos list`, nothing changed | structure reads + 3 points a page | 1 probe a page |
 | Any CLI command within 5 minutes of another | 4 to 6 structure reads | 0, or the board's 1 to 2 after a minute |
 | A repository that changes constantly | n | n + 1 probe per call |
 
 On this repository, with 14 issues and 12 cards, content caching saves one or
-two points a read; the structure cache saves more. The content cache earns its
-keep on large lists and boards and on idle TUIs.
+two points a list read; the structure cache saves more. The content cache
+earns its keep on large issue lists and on TUIs left open on one.
 
-## 9. Build order
+## 10. Build order
 
 **Phase 10: structure.** `internal/cache`; `CacheStore`; `CredentialKey`;
 the service's metadata memo made persistent with the times in section 3;
@@ -291,14 +333,16 @@ the service's metadata memo made persistent with the times in section 3;
 line; the TUI marks a manual refresh fresh.
 
 **Phase 11: content.** `ChangeToken` and its document; the read path in
-section 5 for `ListIssues` and `Board`; epochs and the bumps in every write
-method; the quiet rule; `AsOf` in `domain` and the TUI.
+section 5 for `ListIssues`; `Board` healing stale structure; epochs and the
+bumps in every write method listed in section 6; the quiet rule; `AsOf` on
+pages in `domain` and the TUI; `as_of` in `todos list --json`; the skill and
+README lines of section 8.
 
 Each phase ends with a measurement on the real repository: requests, points
 and elapsed time for a cold and a warm `todos list`, `todos board` and
 `todos view`.
 
-## 10. Tests the phases must include
+## 11. Tests the phases must include
 
 No network, as everywhere else: a fake backend, an injected clock, a temporary
 directory.
@@ -321,8 +365,10 @@ directory.
 - Unwritable, corrupt, oversized and wrong-version files; an unusable
   directory; `TODOS_CACHE=off`; cancellation stops promptly.
 - `doctor` reads GitHub for everything and creates no file.
+- `Board` sends its item requests whatever the store holds, and a card with an
+  unknown Status option causes exactly one fresh read of the board's fields.
 
-## 11. Decisions taken against the alternatives
+## 12. Decisions taken against the alternatives
 
 | Question | Decision | Why |
 |---|---|---|
@@ -332,6 +378,8 @@ directory.
 | Wrap the backend or cache in the service | In the service | A wrapper cannot see or bypass the service's memo, and writes by node ID carry no repository. |
 | Partition by HMAC with a key file | No, plain SHA-256 | The key file sits beside the cache and adds a lifecycle for no gain. |
 | Board structure for 5 minutes | No, 1 minute as today | A new Status option should not take five times longer to appear. |
+| Cache board cards | No | Peter's decision: the board is live. Measured, an unchanged 1,000-card board would have cost 1 point instead of 20. |
 | Cache pull request lists | No | Checks change without moving the timestamp. A short timer is a later option. |
 | Serve stale data when GitHub refuses | No | A rate-limit or auth error is shown, not hidden. |
-| Web UI drag and milestone changes | Unverified | Covered by the 10-minute limit and by `AsOf`; worth a manual check. |
+| Web UI drag and milestone changes | Unverified | They affect only the board-status and milestone a list row shows; covered by the 10-minute limit and by `AsOf`. Worth a manual check by Peter. |
+| Tell agents how old a list is | Yes, `as_of` | @reviewer: a cached list beside a live `todos view` would otherwise contradict it with no way to tell which is newer. |
