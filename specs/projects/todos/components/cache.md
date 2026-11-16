@@ -204,16 +204,47 @@ half, and any board change makes the stored list pages unusable. Without a board
 call is read from GitHub and not stored; the issue list must keep working
 exactly as it does today.
 
-### `AsOf`
+### `AsOf` and the TUI
 
-`domain.Page[T].AsOf` says when the data was really read from GitHub. Zero means "by this call". The TUI stamps what it puts in its
-store with `AsOf` when it is set, and with its own send time otherwise.
+`domain.Page[T].AsOf` says when the data was really read from GitHub: the
+`readAt` of a stored page. Zero means "by this call".
 
-This is what keeps the TUI's rule "stale data never wins" true whatever the
-probe misses. A cached page carries its old read time, so it can never replace
-an issue the TUI has read more recently, for example in a detail view. The
-reads the TUI uses to settle an uncertain change, and its delayed re-read, are
-single-issue reads, which are never cached.
+What `AsOf` protects, and what it does not (@frontend-dev traced this through
+the store):
+
+- **Each issue's fields.** The TUI stamps every issue it puts in its store with
+  the page's `AsOf` when set, and with its own send time otherwise. A cached
+  page therefore cannot replace an issue the TUI has read more recently, in a
+  detail view or from the live board. The same stamp is used to release an
+  uncertain change, so a cached page can never settle one. One helper returns
+  the stamp for both, so they cannot drift apart.
+- **The list itself.** Membership, order, totals and the cursor come from the
+  page, not from per-issue stamps. So the issue list keeps its own `DataAt`:
+  the oldest `AsOf` of the pages it was built from. A load whose result is
+  older than what the list already holds changes nothing in the list; it only
+  moves the time the list was last checked. A cache hit then means exactly
+  what it should: GitHub's token says nothing changed since the data you
+  already have.
+- **What protects the list after our own changes is the epoch**, not `AsOf`:
+  no page stored before a write through `todos` is ever used.
+
+The reads the TUI uses to settle an uncertain change, its delayed re-read, the
+detail views and the board are never cached.
+
+**The header tells the truth.** For the issue list the TUI keeps two times:
+`CheckedAt` (when it last asked GitHub, by probe or by read) drives the
+60-second refresh; `DataAt` drives everything the user reads. The header shows
+the data's real age, `synced 4m ago`, and from 100 columns adds
+`checked just now` when the check is newer. `synced just now` appears only
+when the data was read by that check. A manual `r` is fresh, so it always ends
+in a real `synced just now`. The board and the pull request list are live and
+keep today's header.
+
+**A limit that is not new, only wider.** Every page is probed, so page 1 can be
+a hit and page 2 a live read. An issue updated between the two can then be in
+neither page until the next load. The same race exists today across the half
+second between two page requests; with the cache its window is the token's
+lag, a few seconds.
 
 ## 6. Invalidation
 
@@ -298,10 +329,17 @@ single-issue reads, which are never cached.
 
 The cache must not be invisible to the programs that read `todos` output.
 
-- `todos list --json` gains one field, `as_of`: the time its rows were read
-  from GitHub (the oldest `AsOf` of the pages returned; the time of the call
-  for a live read). An agent holding a list and a `todos view` of the same
-  issue can tell which is newer. Text output does not change.
+- `todos list --json`, `todos view --json` and `todos board --json` each gain
+  one field, `as_of`: the time their data was read from GitHub. For a list it
+  is the oldest read time of the pages returned, where a live page counts from
+  the moment its request was sent, never from when the command finished. For
+  `view` and `board`, which are always live, it is the moment their first
+  request was sent.
+- Format: RFC 3339 in UTC with millisecond precision, so a list and a view
+  made in the same second can still be ordered.
+- The rule for agents, stated in the skill: for the same issue, the document
+  with the later `as_of` is the newer one; when they are equal, prefer
+  `todos view`. Text output does not change.
 - The skill and the README state the rule in section 2 in two sentences: issue
   lists can trail a change made elsewhere by a few seconds and are never
   reused past 10 minutes; `todos view`, `todos board` and `--fresh` are always
@@ -330,17 +368,28 @@ earns its keep on large issue lists and on TUIs left open on one.
 **Phase 10: structure.** `internal/cache`; `CacheStore`; `CredentialKey`;
 the service's metadata memo made persistent with the times in section 3;
 `WithFresh` honoured by the memo; `--fresh`; `TODOS_CACHE=off`; the `doctor`
-line; the TUI marks a manual refresh fresh.
+line.
+
+In the TUI, "fresh" means exactly "the user pressed `r`". A new reason,
+`ReasonManual`, is used only by the `r` key and by recovery from an auth or
+setup error; the read slot wraps its context with `WithFresh` for that reason,
+so every page of the refresh inherits it. Comment pages take the reason of the
+load that started them. `r` also reloads labels and assignable users, fresh,
+when they are already in the store, so the pickers show GitHub's current
+lists. Automatic refreshes, re-reads, prechecks and a project switch are not
+fresh.
 
 **Phase 11: content.** `ChangeToken` and its document; the read path in
 section 5 for `ListIssues`; `Board` healing stale structure; epochs and the
 bumps in every write method listed in section 6; the quiet rule; `AsOf` on
-pages in `domain` and the TUI; `as_of` in `todos list --json`; the skill and
-README lines of section 8.
+pages in `domain`; in the TUI, the stamp helper, the list's `DataAt` and
+`CheckedAt`, and the header; `as_of` in the three JSON documents; the skill
+and README lines of section 8.
 
 Each phase ends with a measurement on the real repository: requests, points
 and elapsed time for a cold and a warm `todos list`, `todos board` and
-`todos view`.
+`todos view`. Phase 11 also measures a TUI left idle on the issue list for ten
+minutes, with the cache on and off.
 
 ## 11. Tests the phases must include
 
@@ -365,6 +414,23 @@ directory.
 - Unwritable, corrupt, oversized and wrong-version files; an unusable
   directory; `TODOS_CACHE=off`; cancellation stops promptly.
 - `doctor` reads GitHub for everything and creates no file.
+- TUI, fresh: a fake service records `IsFresh` per call. After `r` on each
+  view every call of that refresh is fresh, including later pages and comment
+  pages; after an automatic tick, a re-read, a precheck or a project switch,
+  none is.
+- TUI, content: a page sent at t1, a detail read sent at t2 > t1 that finishes
+  first, the page stored after it, then served from the cache: the detail's
+  issue is not rolled back. A cached list older than what the view holds
+  changes no numbers, totals or order; only `CheckedAt` moves. A cached list
+  page whose `readAt` is before a live board read leaves the card in the
+  board read's column. A hit with an older `AsOf` neither releases an
+  uncertain change nor unblocks a held queue. After a close, a label change or
+  a create through `todos`, an automatic refresh uses no page stored before
+  it. Header text for a live read, a hit and a manual `r`, at 80 and 140
+  columns.
+- `as_of` for a live list (its first request's send time, not the end of the
+  command), an all-cached list (the oldest `readAt`) and a mixed one (the
+  oldest of all).
 - `Board` sends its item requests whatever the store holds, and a card with an
   unknown Status option causes exactly one fresh read of the board's fields.
 
@@ -382,4 +448,5 @@ directory.
 | Cache pull request lists | No | Checks change without moving the timestamp. A short timer is a later option. |
 | Serve stale data when GitHub refuses | No | A rate-limit or auth error is shown, not hidden. |
 | Web UI drag and milestone changes | Unverified | They affect only the board-status and milestone a list row shows; covered by the 10-minute limit and by `AsOf`. Worth a manual check by Peter. |
+| What the TUI header says after a cache hit | The data's real age | @frontend-dev: `synced just now` for a page read nine minutes ago would be untrue. |
 | Tell agents how old a list is | Yes, `as_of` | @reviewer: a cached list beside a live `todos view` would otherwise contradict it with no way to tell which is newer. |
