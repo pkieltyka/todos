@@ -9,6 +9,35 @@ import (
 )
 
 func (s *core) Doctor(ctx context.Context) (domain.DoctorReport, error) {
+	ctx = context.WithValue(domain.WithFreshSince(ctx, s.opts.Now()), doctorKey{}, true)
+	// A doctor run owns its memo: it starts fresh, never touches the file store,
+	// and shares one viewer read between its Viewer and Session checks.
+	s.mu.Lock()
+	local := &core{backend: &doctorBackend{Backend: s.backend}, settings: s.settings, opts: s.opts}
+	if s.selection != nil {
+		ref := *s.selection
+		local.selection = &ref
+	}
+	s.mu.Unlock()
+	return local.doctor(ctx)
+}
+
+type doctorBackend struct {
+	Backend
+	viewer     domain.User
+	viewerErr  error
+	readViewer bool
+}
+
+func (b *doctorBackend) Viewer(ctx context.Context) (domain.User, error) {
+	if !b.readViewer {
+		b.viewer, b.viewerErr = b.Backend.Viewer(ctx)
+		b.readViewer = true
+	}
+	return b.viewer, b.viewerErr
+}
+
+func (s *core) doctor(ctx context.Context) (domain.DoctorReport, error) {
 	report := domain.DoctorReport{Checks: []domain.DoctorCheck{}}
 	names := []string{"Credentials", "Viewer", "Repository", "Board", "Board access", "Config"}
 	var blocked error
@@ -94,6 +123,12 @@ func (s *core) Doctor(ctx context.Context) (domain.DoctorReport, error) {
 		}
 		report.Checks = append(report.Checks, check)
 	}
+	check := domain.DoctorCheck{Name: "Cache", OK: true, Detail: "cache disabled (not configured)"}
+	if s.opts.CacheCheck != nil {
+		check = s.opts.CacheCheck()
+		check.Name = "Cache"
+	}
+	report.Checks = append(report.Checks, check)
 	report.OK = report.FirstFailure == nil
 	if !report.OK {
 		return report, report.FirstFailure

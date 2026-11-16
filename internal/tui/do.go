@@ -40,18 +40,40 @@ type Request struct {
 	ID     ReqID
 	Cancel context.CancelFunc
 	Reason LoadReason
+	Since  time.Time // a manual refresh's key press: its reads are fresh since then
 }
 
 // start registers a new request for slot, cancelling the previous one, and
-// returns its ID and context.
+// returns its ID and context. The first read of a manual refresh is fresh
+// since the key press (sinceFor).
 func (a *App) start(slot Slot, reason LoadReason) (ReqID, context.Context) {
+	return a.startSince(slot, reason, a.sinceFor(reason))
+}
+
+// startSince is start with an explicit fresh time. Continuation pages pass
+// the Since of the request they continue, so every page of one refresh
+// carries the same time (cache.md 10): the service may then reuse what the
+// refresh's first read fetched, but nothing read before the key press.
+func (a *App) startSince(slot Slot, reason LoadReason, since time.Time) (ReqID, context.Context) {
 	if r, ok := a.inflight[slot]; ok {
 		r.Cancel()
 	}
 	a.reqSeq++
 	ctx, cancel := context.WithCancel(a.ctx)
-	a.inflight[slot] = &Request{ID: a.reqSeq, Cancel: cancel, Reason: reason}
+	if !since.IsZero() {
+		ctx = domain.WithFreshSince(ctx, since)
+	}
+	a.inflight[slot] = &Request{ID: a.reqSeq, Cancel: cancel, Reason: reason, Since: since}
 	return a.reqSeq, ctx
+}
+
+// sinceFor is the fresh time of a new read: the last key press of r for a
+// manual refresh, and none otherwise.
+func (a *App) sinceFor(reason LoadReason) time.Time {
+	if reason == ReasonManual {
+		return a.manualAt
+	}
+	return time.Time{}
 }
 
 // accept reports whether a result belongs to the live request of its slot,
@@ -119,13 +141,13 @@ func (a *App) onSession(m sessionMsg) tea.Cmd {
 
 func (a *App) loadIssues(reason LoadReason) tea.Cmd {
 	c := &a.store.Issues
-	shadow := c.Phase != PhaseEmpty && (reason == ReasonRefresh || reason == ReasonAuto)
+	shadow := c.Phase != PhaseEmpty && (reason == ReasonRefresh || reason == ReasonAuto || reason == ReasonManual)
 	if !shadow {
 		*c = ListCache[IssueQuery]{Query: c.Query}
 	} else {
 		c.next = &ListCache[IssueQuery]{Query: c.Query}
 	}
-	return a.issuesPage(c.Query, "", shadow, reason)
+	return a.issuesPage(c.Query, "", shadow, reason, a.sinceFor(reason))
 }
 
 func issueFilter(q IssueQuery) domain.IssueFilter {
@@ -136,8 +158,8 @@ func issueFilter(q IssueQuery) domain.IssueFilter {
 	return f
 }
 
-func (a *App) issuesPage(q IssueQuery, cursor string, shadow bool, reason LoadReason) tea.Cmd {
-	id, ctx := a.start(Slot{Kind: SlotIssues}, reason)
+func (a *App) issuesPage(q IssueQuery, cursor string, shadow bool, reason LoadReason, since time.Time) tea.Cmd {
+	id, ctx := a.startSince(Slot{Kind: SlotIssues}, reason, since)
 	call := func(ctx context.Context) (domain.Page[domain.Issue], error) {
 		return a.deps.Service.ListIssues(ctx, issueFilter(q), domain.PageRequest{Cursor: cursor, Size: pageSize})
 	}
@@ -192,7 +214,7 @@ func (a *App) onIssuesPage(m issuesPageMsg) tea.Cmd {
 		} else {
 			target.Phase = PhaseBackground
 		}
-		return a.issuesPage(c.Query, target.Cursor, m.shadow, r.Reason)
+		return a.issuesPage(c.Query, target.Cursor, m.shadow, r.Reason, r.Since)
 	}
 	a.finish(slot)
 	target.Phase = PhaseComplete
@@ -211,17 +233,17 @@ func (a *App) onIssuesPage(m issuesPageMsg) tea.Cmd {
 
 func (a *App) loadPRs(reason LoadReason) tea.Cmd {
 	c := &a.store.PRs
-	shadow := c.Phase != PhaseEmpty && (reason == ReasonRefresh || reason == ReasonAuto)
+	shadow := c.Phase != PhaseEmpty && (reason == ReasonRefresh || reason == ReasonAuto || reason == ReasonManual)
 	if !shadow {
 		*c = PRListCache{Query: c.Query}
 	} else {
 		c.next = &PRListCache{Query: c.Query}
 	}
-	return a.prsPage(c.Query, "", shadow, reason)
+	return a.prsPage(c.Query, "", shadow, reason, a.sinceFor(reason))
 }
 
-func (a *App) prsPage(q PRQuery, cursor string, shadow bool, reason LoadReason) tea.Cmd {
-	id, ctx := a.start(Slot{Kind: SlotPRs}, reason)
+func (a *App) prsPage(q PRQuery, cursor string, shadow bool, reason LoadReason, since time.Time) tea.Cmd {
+	id, ctx := a.startSince(Slot{Kind: SlotPRs}, reason, since)
 	call := func(ctx context.Context) (domain.Page[domain.PullRequest], error) {
 		return a.deps.Service.ListPRs(ctx, domain.PRFilter{State: string(q.State)}, domain.PageRequest{Cursor: cursor, Size: pageSize})
 	}
@@ -274,7 +296,7 @@ func (a *App) onPRsPage(m prsPageMsg) tea.Cmd {
 		} else {
 			target.Phase = PhaseBackground
 		}
-		return a.prsPage(c.Query, target.Cursor, m.shadow, r.Reason)
+		return a.prsPage(c.Query, target.Cursor, m.shadow, r.Reason, r.Since)
 	}
 	a.finish(slot)
 	target.Phase = PhaseComplete
@@ -460,7 +482,7 @@ func (a *App) loadIssue(n int, reason LoadReason) tea.Cmd {
 		} else {
 			d.Comments = nil
 		}
-		cmds = append(cmds, a.commentsPage(issueComments, n, "", shadow))
+		cmds = append(cmds, a.commentsPage(issueComments, n, "", shadow, reason, a.sinceFor(reason)))
 	}
 	return tea.Batch(cmds...)
 }
@@ -500,12 +522,15 @@ func (a *App) onIssueDetail(m issueDetailMsg) tea.Cmd {
 	return nil
 }
 
-func (a *App) commentsPage(kind commentKind, n int, cursor string, shadow bool) tea.Cmd {
+// commentsPage reads one page of comments under the reason and fresh time of
+// the load that started it, so a manual refresh's comment pages are fresh
+// since the same key press.
+func (a *App) commentsPage(kind commentKind, n int, cursor string, shadow bool, reason LoadReason, since time.Time) tea.Cmd {
 	sk := SlotIssueComments
 	if kind == prComments {
 		sk = SlotPRComments
 	}
-	id, ctx := a.start(Slot{Kind: sk, Number: n}, ReasonOpen)
+	id, ctx := a.startSince(Slot{Kind: sk, Number: n}, reason, since)
 	call := func(ctx context.Context) (domain.Page[domain.Comment], error) {
 		req := domain.PageRequest{Cursor: cursor, Size: pageSize}
 		if kind == prComments {
@@ -534,7 +559,8 @@ func (a *App) onCommentsPage(m commentsPageMsg) tea.Cmd {
 		sk = SlotPRComments
 	}
 	slot := Slot{Kind: sk, Number: m.number}
-	if _, ok := a.accept(slot, m.req); !ok {
+	r, ok := a.accept(slot, m.req)
+	if !ok {
 		return nil
 	}
 	var st commentState
@@ -568,7 +594,7 @@ func (a *App) onCommentsPage(m commentsPageMsg) tea.Cmd {
 		if !m.shadow {
 			*st.phase = PhaseBackground
 		}
-		return a.commentsPage(m.kind, m.number, m.page.NextCursor, m.shadow)
+		return a.commentsPage(m.kind, m.number, m.page.NextCursor, m.shadow, r.Reason, r.Since)
 	}
 	a.finish(slot)
 	if m.shadow {
@@ -596,7 +622,7 @@ func (a *App) loadPR(n int, reason LoadReason) tea.Cmd {
 		read(a.deps.Clock, ctx, call, func(sent time.Time, v domain.PRDetail, err error) tea.Msg {
 			return prDetailMsg{req: id, sent: sent, number: n, detail: v, err: err}
 		}),
-		a.commentsPage(prComments, n, "", shadow),
+		a.commentsPage(prComments, n, "", shadow, reason, a.sinceFor(reason)),
 	)
 }
 
@@ -715,7 +741,7 @@ func needsRecovery(err *domain.Error) bool {
 // recover refreshes metadata, then reloads the session; onRecovered restarts
 // the visible read.
 func (a *App) recover() tea.Cmd {
-	id, ctx := a.start(Slot{Kind: SlotRecover}, ReasonRefresh)
+	id, ctx := a.start(Slot{Kind: SlotRecover}, ReasonManual)
 	svc := a.deps.Service
 	call := func(ctx context.Context) (domain.Session, error) {
 		if err := svc.RefreshMetadata(ctx); err != nil {
@@ -743,7 +769,7 @@ func (a *App) onRecovered(m recoveredMsg) tea.Cmd {
 	}
 	s := m.s
 	a.store.Meta.Session = &s
-	return a.reload(ReasonRefresh)
+	return a.reload(ReasonManual)
 }
 
 func hintSuffix(de *domain.Error) string {

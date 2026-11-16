@@ -114,7 +114,7 @@ todos
 todos tui board
 ```
 
-- Global flags: `--repo`, `--project`, `--json`, `--no-color`, `--help`,
+- Global flags: `--repo`, `--project`, `--json`, `--no-color`, `--fresh`, `--help`,
   `--version`. The version flag also supports JSON.
 - ISSUE/PR accepts `12`, `#12`, or a matching repository's GitHub URL.
   A wrong repository or URL kind is invalid_input. LOGIN accepts `@me`.
@@ -143,6 +143,14 @@ todos tui board
   status. `board remove` leaves the issue intact. Archived cards are restored
   by move/add. Creating an issue with a status requests placement; creating without one
   requests no placement.
+
+Session, labels and assignable users are cached for five minutes; board
+structure (selection and Status options) for one minute. The disposable private
+cache is under `$XDG_CACHE_HOME/todos/v1` (default `~/.cache/todos/v1`).
+Use `--fresh` to reject metadata read before the command started; newly read
+metadata is shared within the command. Set `TODOS_CACHE=off` to disable cache
+files while keeping the in-process memo. Issue/PR detail, comments and board cards stay
+live. Doctor always reads GitHub fresh and never creates or writes the cache.
 
 ## Quick add
 
@@ -173,8 +181,8 @@ retain its input and result. TUI drafts are persisted separately.
 Ordinary success: one document on stdout. Ordinary failure: empty stdout and
 one `{"error": Error}` document on stderr. Two exceptions:
 
-- doctor always prints its six-check report on stdout; checks 1–3 determine
-  its exit code. Board/config failures alone do not fail it.
+- doctor always prints its seven-check report on stdout; checks 1–3 determine
+  its exit code. Board/config/cache failures alone do not fail it.
 - quick-add prints its complete accounting document on stdout after execution,
   including first-write rejection or partial failure, with an error on stderr.
   Parse/preflight failures leave stdout empty.

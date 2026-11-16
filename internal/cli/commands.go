@@ -310,15 +310,30 @@ func runAssignees(ctx context.Context, r *runtime, _ *cobra.Command, _ []string)
 	return out, nil
 }
 func runDoctor(ctx context.Context, r *runtime, _ *cobra.Command, _ []string) (any, error) {
+	ctx = domain.WithFreshSince(ctx, r.deps.Now())
 	if err := r.ensureService(ctx); err != nil {
 		v, e := doctorWiringFailure(err)
-		return doctorDTO(v), e
+		return doctorDTO(r.withCacheCheck(v)), e
 	}
 	v, err := r.wiring.Service.Doctor(ctx)
-	if err != nil && len(v.Checks) != 6 {
+	if err != nil && len(v.Checks) != 6 && len(v.Checks) != 7 {
 		v, err = doctorWiringFailure(err)
 	}
-	return doctorDTO(v), err
+	return doctorDTO(r.withCacheCheck(v)), err
+}
+func (r *runtime) withCacheCheck(v domain.DoctorReport) domain.DoctorReport {
+	for _, c := range v.Checks {
+		if c.Name == "Cache" {
+			return v
+		}
+	}
+	check := domain.DoctorCheck{Name: "Cache", OK: true, Detail: "cache disabled (not configured)"}
+	if r.wiring.CacheCheck != nil {
+		check = r.wiring.CacheCheck()
+		check.Name = "Cache"
+	}
+	v.Checks = append(v.Checks, check)
+	return v
 }
 func doctorWiringFailure(err error) (domain.DoctorReport, error) {
 	err = domainError(err)

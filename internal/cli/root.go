@@ -57,6 +57,12 @@ func NewRoot(deps Dependencies) *cobra.Command {
 	flags.String("project", "", "Project NUMBER, OWNER/NUMBER or URL")
 	flags.BoolVar(&asJSON, "json", false, "Print a JSON document")
 	flags.Bool("no-color", false, "Disable colour")
+	flags.Bool("fresh", false, "Bypass cached metadata and read GitHub")
+	root.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
+		if fresh, _ := cmd.Flags().GetBool("fresh"); fresh {
+			cmd.SetContext(domain.WithFreshSince(cmd.Context(), deps.Now()))
+		}
+	}
 	flags.BoolVar(&showVersion, "version", false, "Print the version")
 	writeVersion := func() error {
 		if asJSON {

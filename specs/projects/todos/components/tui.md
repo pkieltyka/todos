@@ -404,14 +404,18 @@ overlays call App methods through `Ctx` (4.1); each method starts its slot
   `chooseBoard`, `loadIssues`, `loadPRs`, `loadIssue` (`GetIssue`, plus the
   first comments page on Open and Refresh), `issueDetail` (`GetIssue` only, for
   Reread), `loadPR`, `commentsPage`;
-- metadata: `loadMeta` in `actions.go` (`Labels`, `AssignableUsers`);
+- metadata: `loadMeta` in `actions.go` (`Labels`, `AssignableUsers`), and
+  `reloadMetaFresh` for a manual refresh;
 - pending changes: `applyChange` and `sendChange` in `changes.go`;
 - forms: `formRead` (edit load and pre-check), `CreateIssue`, `EditIssue`,
   `Comment` in `overlay_forms.go`; `Delete` in `overlay_confirm.go`;
 - quick add: `PlanQuickAdd` and `RunQuickAdd` in `overlay_quickadd.go`.
 
-`LoadReason` is Initial, Refresh, Auto, QueryChanged, Open, Reread or
-Precheck (`msgs.go`).
+`LoadReason` is Initial, Refresh, Auto, QueryChanged, Open, Reread, Precheck
+or Manual (`msgs.go`). Manual is the user's own refresh: the `r` key, and the
+recovery it starts after an auth or setup error (`recover`, `onRecovered`).
+Refresh is a reload the app starts itself, such as after a project switch.
+Only Manual is fresh (7.6).
 
 ### 6.2 The Cmd wrappers
 
@@ -419,8 +423,14 @@ Precheck (`msgs.go`).
 type ReqID uint64
 
 // start registers a new request in a slot, cancelling the previous one, and
-// returns its ID and a context derived from the program's (6.3).
+// returns its ID and a context derived from the program's (6.3). For
+// ReasonManual the context is marked domain.WithFreshSince(manualAt), the
+// time of the last press of r.
 func (a *App) start(slot Slot, reason LoadReason) (ReqID, context.Context)
+
+// startSince is start with an explicit fresh time; continuation pages pass
+// the Since of the request they continue.
+func (a *App) startSince(slot Slot, reason LoadReason, since time.Time) (ReqID, context.Context)
 
 // read: cancellable through the slot's context, stamped with the time it was sent.
 func read[T any](clock func() time.Time, ctx context.Context,
@@ -721,6 +731,34 @@ func (s *Store) Columns(effective func(int) (domain.Issue, bool), extra []int) [
 `r`, the auto-refresh, and the recovery after a setup error all use one path
 with a different `Reason`.
 
+**A manual refresh is fresh** (cache.md 10). Fresh is a time, not a flag:
+nothing read from GitHub before it may be used.
+- **The time:** pressing `r` records `App.manualAt` from the injected clock.
+  `r` and the recovery it starts use `ReasonManual`, and `start` wraps the
+  read's context with `domain.WithFreshSince(ctx, manualAt)` for that reason
+  only. The request keeps the time in `Request.Since`.
+- **What the service does with it:** it may reuse what this refresh's own
+  first read fetched (the session, the board's fields), but nothing older
+  than the key press.
+- **The same time on every read of the refresh:**
+  - **Continuation pages:** list pages start their slot with the reason and
+    `Since` of the request they continue (`r.Reason`, `r.Since`), not a new
+    time.
+  - **Comment pages:** `commentsPage` takes the reason and time of the load
+    that started it and passes both on to each next page.
+  - **Labels and assignable users:** `r` also reloads them, fresh since the
+    same press (`reloadMetaFresh`), but only when they are already in the
+    store, so a label made on github.com shows in the pickers after `r`.
+- **A second `r`** later carries a later time.
+- **A load already in flight:** a manual refresh replaces a load of the same
+  view that is not manual, such as an auto-refresh, which the cache may
+  answer (`keepLoading`). A second `r` while a manual refresh is loading does
+  nothing.
+
+Nothing else is fresh: not startup, opening a view or detail, the
+auto-refresh, the delayed re-read, the form pre-check, or the reload after a
+project switch (`ReasonRefresh`).
+
 - **Lists:** pages are assembled into `next`, a shadow `ListCache`, with the
   same 500 limit. `Numbers` is swapped for `next.Numbers` only when the shadow
   is complete. Issue contents are `Put` as each page arrives, under the asOf
@@ -747,7 +785,8 @@ with a different `Reason`.
   sent before the switch. Issue and board reads in flight are cancelled, and
   the board, the issue list (if loaded) and every open issue detail reload.
 - **Metadata:** every picker open sends `LoadMeta` in the background. The
-  service memoises it for 60 s (A3). The picker opens at once from `meta`.
+  service keeps labels and users for 5 minutes (cache.md 3), and `r` reads
+  them fresh. The picker opens at once from `meta`.
   When the fresh list lands, the picker updates and keeps its cursor by name.
 
 ### 7.7 Auto-refresh (4.4, 10)
@@ -1855,6 +1894,11 @@ which is authoritative.
    `h := newHarness(t, fixture)` runs every returned Cmd in its own goroutine
    and feeds the messages back in arrival order. `h.settle()` waits until no
    Cmd is running except those held at a gate. No `tea.Program`, no sleeps.
+   A gate counts as holding only while its own call is still parked: the
+   harness knows which call each gate catches (the next matching call after
+   it is registered) and checks the fake's call log. So a held call that the
+   code under test cancels, such as an auto-refresh replaced by `r`, is waited
+   for like any other Cmd.
    `settleDeadline` (30 s) only detects a hang. A passing test never waits for
    it, and one settle can cover a whole 500-comment load on a slow, shared CI
    runner under `-race`.
@@ -2065,6 +2109,23 @@ WithInitialTermSize(w, h))`, `Send`, `Type`, `WaitFor`, `FinalModel`,
 - `TestReread_*` (8.12), `TestWording_justNowAndNotPlannedToast`,
   `TestIssueList_labelsBorrowUnusedAssigneeRoom`
 - `TestGolden`, `TestGolden_ansi`, `TestGolden_tooSmall`, `TestE2E_*`
+
+**fresh mark** (`fresh_test.go`: a wrapper over the fake records
+`domain.FreshSince` for every read; every read of one refresh carries the same
+time)
+- `TestFresh_rOnIssueListMarksEveryPage`
+- `TestFresh_eachRCarriesItsKeyPressTime`
+- `TestFresh_laterPagesKeepTheKeyPressTimeWhileTheClockMoves` (issue list, PR
+  list and comment pages, with the clock moving between pages)
+- `TestFresh_rOnPRList`
+- `TestFresh_rOnBoard`
+- `TestFresh_rOnIssueDetailMarksEveryCommentPage`
+- `TestFresh_rOnPRDetail`
+- `TestFresh_recoveryAfterAuthErrorIsFresh`
+- `TestFresh_rReloadsLabelsAndUsersOnlyWhenLoaded`
+- `TestFresh_rReplacesAnAutoRefreshInFlight`
+- `TestFresh_notOnStartupOpenAutoRereadPrecheckOrProjectSwitch`
+- `TestFresh_notOnProjectSwitch`
 
 **closed view order**
 - `TestClosedOrder_newestClosedFirstWithFallbacks`

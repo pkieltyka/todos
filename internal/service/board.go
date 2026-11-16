@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -12,7 +13,15 @@ func noBoard(message string, candidates []domain.Project) error {
 	return &domain.Error{Kind: domain.ErrNoBoard, Message: message, Hint: "run todos board list, then todos board use PROJECT", Candidates: append([]domain.Project{}, candidates...)}
 }
 func (s *core) BoardInfo(ctx context.Context) (domain.BoardInfo, error) {
-	return loadMetadata(ctx, s, &s.board, time.Minute, func() (domain.BoardInfo, error) { return s.resolveBoard(ctx) }, cloneInfo)
+	session, err := s.Session(ctx)
+	if err != nil {
+		return domain.BoardInfo{}, err
+	}
+	ref, err := s.boardChoice(ctx, session.Repo.Ref)
+	if err != nil {
+		return domain.BoardInfo{}, typed(err)
+	}
+	return loadMetadata(ctx, s, &s.board, boardKey(ref), time.Minute, func() (domain.BoardInfo, error) { return s.resolveBoard(ctx) }, cloneInfo)
 }
 func (s *core) validateBoard(ctx context.Context, p domain.Project) (domain.BoardInfo, error) {
 	info, err := s.backend.ProjectFields(ctx, p.NodeID)
@@ -139,6 +148,7 @@ func (s *core) UseBoard(ctx context.Context, ref domain.ProjectRef) (domain.Proj
 	if !strings.EqualFold(ref.Host, session.Repo.Ref.Host) || ref.Number < 1 || ref.Owner == "" {
 		return domain.Project{}, invalid("invalid project reference")
 	}
+	at := s.opts.Now()
 	p, err := s.backend.Project(ctx, ref)
 	if err != nil {
 		return domain.Project{}, typed(err)
@@ -157,8 +167,15 @@ func (s *core) UseBoard(ctx context.Context, ref domain.ProjectRef) (domain.Proj
 	s.generation++
 	copy := ref
 	s.selection = &copy
-	s.board = metadata[domain.BoardInfo]{Value: cloneInfo(info), Valid: true, ExpiresAt: s.opts.Now().Add(time.Minute)}
+	space := s.cacheSpace
+	key := boardKey(&ref)
+	s.board = metadata[domain.BoardInfo]{Value: cloneInfo(info), Valid: true, ReadAt: at, ExpiresAt: at.Add(time.Minute), Space: space, Key: key}
 	s.mu.Unlock()
+	if s.opts.Cache != nil && space != "" {
+		if data, e := json.Marshal(info); e == nil {
+			s.opts.Cache.Put(space, key, data, at)
+		}
+	}
 	return info.Project, nil
 }
 func (s *core) Board(ctx context.Context) (domain.Board, error) {

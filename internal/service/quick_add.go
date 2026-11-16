@@ -89,19 +89,23 @@ func quickProblems(problems []domain.Problem) error {
 func (s *core) quickCore(board *domain.BoardInfo) *core {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	run := &core{backend: &pacedBackend{Backend: s.backend, now: s.opts.Now, wait: s.opts.Wait}, settings: s.settings, opts: s.opts, session: s.session, labels: s.labels, users: s.users, board: s.board, generation: s.generation}
+	run := &core{backend: &pacedBackend{Backend: s.backend, now: s.opts.Now, wait: s.opts.Wait}, settings: s.settings, opts: s.opts, session: s.session, labels: s.labels, users: s.users, board: s.board, generation: s.generation, cacheSpace: s.cacheSpace, structureAfter: s.structureAfter}
+	run.requestedSpace, run.canonicalSpace = s.requestedSpace, s.canonicalSpace
+	run.backend = &structureBackend{Backend: run.backend, owner: run}
 	run.labels.Value = cloneLabels(s.labels.Value)
 	run.users.Value = cloneUsers(s.users.Value)
 	run.board.Value = cloneInfo(s.board.Value)
 	if s.selection != nil {
 		ref := *s.selection
 		run.selection = &ref
+		run.board.Key = boardKey(&ref)
 	}
 	if board != nil {
 		run.board.Value = cloneInfo(*board)
 		run.board.Valid = true
 		ref := board.Project.Ref
 		run.selection = &ref
+		run.board.Key = boardKey(&ref)
 	}
 	return run
 }

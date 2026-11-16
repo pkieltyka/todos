@@ -595,6 +595,10 @@ the footer.
 | `q` | quit | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `ctrl+c` | quit | everywhere, including text mode |
 
+`r` always reads GitHub. It skips the cache, including what the labels and
+assignee pickers show, and takes over an automatic refresh that is already
+running. The 60-second auto-refresh may be answered from the cache.
+
 Text mode (forms, filter, pickers' filter, quick add, confirm inputs):
 
 | Key | Action |

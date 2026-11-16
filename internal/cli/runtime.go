@@ -13,6 +13,7 @@ import (
 	"github.com/cli/go-gh/v2/pkg/auth"
 	ghrepo "github.com/cli/go-gh/v2/pkg/repository"
 	"github.com/google/shlex"
+	"github.com/pkieltyka/todos/internal/cache"
 	"github.com/pkieltyka/todos/internal/config"
 	"github.com/pkieltyka/todos/internal/domain"
 	"github.com/pkieltyka/todos/internal/github"
@@ -38,6 +39,7 @@ type Wiring struct {
 	Service       service.Service
 	Drafts        tui.DraftStore
 	ConfigWarning func() *domain.Error
+	CacheCheck    func() domain.DoctorCheck
 }
 type Dependencies struct {
 	In          io.Reader
@@ -134,13 +136,30 @@ func completeDeps(d Dependencies) Dependencies {
 				}
 				return ref.Host, nil
 			}})
-			return Wiring{Service: service.New(client, settings, service.Options{ResolveRepository: resolve, Project: project, Now: d.Now}), Drafts: config.NewDraftStore(paths), ConfigWarning: settings.Warning}, nil
+			store, check := cacheWiring(d.Getenv, os.UserHomeDir, d.Now)
+			return Wiring{Service: service.New(client, settings, service.Options{ResolveRepository: resolve, Project: project, Now: d.Now, Cache: store, CacheCheck: check}), Drafts: config.NewDraftStore(paths), ConfigWarning: settings.Warning, CacheCheck: check}, nil
 		}
 	}
 	return d
 }
 
 var _ service.Backend = (*github.Client)(nil)
+var _ service.CacheStore = (*cache.Store)(nil)
+
+func cacheWiring(getenv func(string) string, home func() (string, error), now func() time.Time) (service.CacheStore, func() domain.DoctorCheck) {
+	root := cache.DefaultRoot(getenv, home)
+	off := strings.EqualFold(getenv("TODOS_CACHE"), "off")
+	check := func() domain.DoctorCheck {
+		if off {
+			return domain.DoctorCheck{Name: "Cache", OK: true, Detail: root + "; disabled (TODOS_CACHE=off)"}
+		}
+		return cache.Check(root)
+	}
+	if off || root == "" {
+		return nil, check
+	}
+	return cache.New(root, cache.Options{Now: now}), check
+}
 
 func ResolveRepository(ctx context.Context, flag string) (domain.RepoRef, error) {
 	return resolveRepository(ctx, flag, os.Getenv, ghrepo.Current)

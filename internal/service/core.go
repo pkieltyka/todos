@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,23 +16,31 @@ type Options struct {
 	Project           string
 	Now               func() time.Time
 	Wait              func(context.Context, time.Duration) error
+	Cache             CacheStore
+	CacheCheck        func() domain.DoctorCheck
 }
 type metadata[T any] struct {
-	Value     T
-	ExpiresAt time.Time
-	Valid     bool
+	Value      T
+	ExpiresAt  time.Time
+	Valid      bool
+	ReadAt     time.Time
+	Space, Key string
 }
 type core struct {
-	backend    Backend
-	settings   SettingsStore
-	opts       Options
-	mu         sync.Mutex
-	session    metadata[domain.Session]
-	labels     metadata[[]domain.Label]
-	users      metadata[[]domain.User]
-	board      metadata[domain.BoardInfo]
-	selection  *domain.ProjectRef
-	generation uint64
+	backend        Backend
+	settings       SettingsStore
+	opts           Options
+	mu             sync.Mutex
+	session        metadata[domain.Session]
+	labels         metadata[[]domain.Label]
+	users          metadata[[]domain.User]
+	board          metadata[domain.BoardInfo]
+	selection      *domain.ProjectRef
+	generation     uint64
+	structureAfter time.Time
+	cacheSpace     string
+	requestedSpace string
+	canonicalSpace string
 }
 
 func New(b Backend, settings SettingsStore, opts Options) Service {
@@ -49,7 +59,9 @@ func New(b Backend, settings SettingsStore, opts Options) Service {
 			}
 		}
 	}
-	return &core{backend: b, settings: settings, opts: opts}
+	s := &core{settings: settings, opts: opts}
+	s.backend = &structureBackend{Backend: b, owner: s}
+	return s
 }
 func typed(err error) error {
 	if err == nil {
@@ -70,32 +82,76 @@ func typed(err error) error {
 func invalid(message string) error {
 	return &domain.Error{Kind: domain.ErrInvalidInput, Message: message}
 }
-func loadMetadata[T any](ctx context.Context, s *core, slot *metadata[T], ttl time.Duration, fetch func() (T, error), clone func(T) T) (T, error) {
+func loadMetadata[T any](ctx context.Context, s *core, slot *metadata[T], key string, ttl time.Duration, fetch func() (T, error), clone func(T) T) (T, error) {
 	var zero T
 	if ctx.Err() != nil {
 		return zero, typed(ctx.Err())
 	}
+	space := s.structureSpace(ctx)
 	s.mu.Lock()
-	if slot.Valid && (slot.ExpiresAt.IsZero() || s.opts.Now().Before(slot.ExpiresAt)) {
+	after := s.structureAfter
+	if since, marked := domain.FreshSince(ctx); marked && since.After(after) {
+		after = since
+	}
+	if slot.Valid && slot.Space == space && slot.Key == key && !slot.ReadAt.Before(after) && !slot.ReadAt.After(s.opts.Now()) && s.opts.Now().Before(slot.ExpiresAt) {
 		v := clone(slot.Value)
 		s.mu.Unlock()
 		return v, nil
 	}
 	generation := s.generation
 	s.mu.Unlock()
-	v, err := fetch()
+	var v T
+	var err error
+	at := s.opts.Now()
+	hit := false
+	if s.opts.Cache != nil && space != "" && !isDoctor(ctx) {
+		if data, stored, ok := s.opts.Cache.Get(space, key); ok && !stored.IsZero() && !stored.Before(after) && !stored.After(at) && at.Before(stored.Add(ttl)) && json.Unmarshal(data, &v) == nil && validMetadata(v) && metadataIdentity(v, space) {
+			at, hit = stored, true
+		}
+	}
+	if !hit {
+		at = s.opts.Now() // the read's send time, not cache lookup/completion time
+		v, err = fetch()
+	}
 	if err != nil {
 		return zero, typed(err)
 	}
-	owned := clone(v)
-	s.mu.Lock()
-	if generation == s.generation {
-		*slot = metadata[T]{Value: owned, Valid: true}
-		if ttl > 0 {
-			slot.ExpiresAt = s.opts.Now().Add(ttl)
+	if ctx.Err() != nil {
+		return zero, typed(ctx.Err())
+	}
+	// GitHub may redirect an old repository name to its canonical name. Once
+	// known, use that space, including for this session's first persisted fill.
+	if session, ok := any(v).(domain.Session); ok && space != "" && !metadataIdentity(session, space) {
+		canonical := space[:strings.Index(space, "/structure/")] + "/structure/" + strings.ToLower(session.Repo.Ref.Host+"/"+session.Repo.Ref.Owner+"/"+session.Repo.Ref.Name)
+		s.mu.Lock()
+		if generation == s.generation {
+			s.requestedSpace, s.canonicalSpace = space, canonical
+			s.clearMemoLocked()
+			s.cacheSpace = canonical
+			space, generation = canonical, s.generation
+		}
+		s.mu.Unlock()
+	}
+	// A concurrent auth refresh may have changed the client's resolved token
+	// while this read was in flight. Never persist it in the old partition.
+	if s.opts.Cache != nil && space != "" {
+		s.structureSpace(ctx) // a changed partition advances the generation
+		if ctx.Err() != nil {
+			return zero, typed(ctx.Err())
 		}
 	}
+	owned := clone(v)
+	s.mu.Lock()
+	current := generation == s.generation
+	if current {
+		*slot = metadata[T]{Value: owned, Valid: true, ReadAt: at, ExpiresAt: at.Add(ttl), Space: space, Key: key}
+	}
 	s.mu.Unlock()
+	if current && !hit && s.opts.Cache != nil && space != "" && !isDoctor(ctx) {
+		if data, e := json.Marshal(v); e == nil {
+			s.opts.Cache.Put(space, key, data, at)
+		}
+	}
 	return clone(v), nil
 }
 func cloneLabels(v []domain.Label) []domain.Label { return append([]domain.Label{}, v...) }
@@ -105,7 +161,7 @@ func cloneInfo(v domain.BoardInfo) domain.BoardInfo {
 	return v
 }
 func (s *core) Session(ctx context.Context) (domain.Session, error) {
-	return loadMetadata(ctx, s, &s.session, 0, func() (domain.Session, error) {
+	return loadMetadata(ctx, s, &s.session, "session", 5*time.Minute, func() (domain.Session, error) {
 		if s.opts.ResolveRepository == nil {
 			return domain.Session{}, &domain.Error{Kind: domain.ErrNoRepo, Message: "no repository was selected", Hint: "use --repo OWNER/REPO"}
 		}
@@ -135,13 +191,7 @@ func (s *core) issueSession(ctx context.Context) (domain.Session, error) {
 	return v, nil
 }
 func (s *core) RefreshMetadata(ctx context.Context) error {
-	s.mu.Lock()
-	s.generation++
-	s.session.Valid = false
-	s.labels.Valid = false
-	s.users.Valid = false
-	s.board.Valid = false
-	s.mu.Unlock()
+	s.dropStructure()
 	if err := s.backend.RefreshCredentials(ctx); err != nil {
 		return typed(err)
 	}
@@ -177,7 +227,7 @@ func allPages[T any](ctx context.Context, fetch func(context.Context, domain.Pag
 	}
 }
 func (s *core) Labels(ctx context.Context) ([]domain.Label, error) {
-	return loadMetadata(ctx, s, &s.labels, time.Minute, func() ([]domain.Label, error) {
+	return loadMetadata(ctx, s, &s.labels, "labels", 5*time.Minute, func() ([]domain.Label, error) {
 		session, err := s.issueSession(ctx)
 		if err != nil {
 			return nil, err
@@ -188,7 +238,7 @@ func (s *core) Labels(ctx context.Context) ([]domain.Label, error) {
 	}, cloneLabels)
 }
 func (s *core) AssignableUsers(ctx context.Context) ([]domain.User, error) {
-	return loadMetadata(ctx, s, &s.users, time.Minute, func() ([]domain.User, error) {
+	return loadMetadata(ctx, s, &s.users, "users", 5*time.Minute, func() ([]domain.User, error) {
 		session, err := s.issueSession(ctx)
 		if err != nil {
 			return nil, err

@@ -261,6 +261,22 @@ func (a *App) loadMeta() tea.Cmd {
 	)
 }
 
+// reloadMetaFresh is part of a manual refresh: labels and assignable users
+// are read again, fresh since the key press, so a label made on github.com shows in the pickers
+// after r. Only lists already in the store are reloaded; a list nothing has
+// asked for yet costs nothing.
+func (a *App) reloadMetaFresh() tea.Cmd {
+	svc, ctx := a.deps.Service, domain.WithFreshSince(a.ctx, a.manualAt)
+	var cmds []tea.Cmd
+	if a.store.Meta.Labels != nil {
+		cmds = append(cmds, func() tea.Msg { l, err := svc.Labels(ctx); return labelsMsg{l, err} })
+	}
+	if a.store.Meta.Users != nil {
+		cmds = append(cmds, func() tea.Msg { u, err := svc.AssignableUsers(ctx); return usersMsg{u, err} })
+	}
+	return tea.Batch(cmds...)
+}
+
 func (a *App) onMeta(msg tea.Msg) {
 	switch m := msg.(type) {
 	case labelsMsg:

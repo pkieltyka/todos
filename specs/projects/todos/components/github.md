@@ -892,3 +892,16 @@ Use errors.As for api.HTTPError and api.GraphQLError. Apply this priority across
 - The source proposal's read documents were schema-validated against pkieltyka/playg; detail queries returned expected NOT_FOUND because that repo was empty.
 - Mutation input and payload fields, including unarchive, were checked by read-only introspection. No mutation was executed.
 - Nonempty pagination, archived-write behaviour and rate-limit failures remain fixture/opt-in read-test coverage; do not claim live mutation validation.
+
+## Cache credential identity (Phase 10)
+
+```go
+func (c *Client) CredentialKey(ctx context.Context) (string, error)
+```
+
+- Call requestReady, then read normalized host and resolved token under authMu.
+- Return the full lowercase hex SHA-256 of `"todos-cache-v1\x00" + host + "\x00" + token`.
+- No HTTP call is made solely to compute the key. It follows the client's own environment/config/keyring resolution and changes after credential re-resolution.
+- Raw tokens never leave github. Never print/log the key or include it in doctor. Missing credentials and cancellation retain typed errors.
+- go-gh's HTTP cache stays disabled. ChangeToken is Phase 11, not implemented in Phase 10.
+- Tests: `TestCredentialKey_NormalizedAndNoHTTP`, `TestCredentialKey_TracksReresolvedTokenAndHost`, `TestCredentialKey_CancelledAndMissingCredential`.

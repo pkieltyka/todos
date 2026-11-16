@@ -118,13 +118,14 @@ type App struct {
 	renderVer  uint64
 	clockOn    bool // a clock tick is scheduled
 
-	pending *PendingSet
-	formSeq uint64
-	writes  map[string]*formWrite // form writes in flight (create, edit, comment, delete)
-	rr      rereads               // delayed re-reads after creates and board changes (reread.go)
-	drafts  draftQueue            // quick-add draft saves, one at a time
-	runSeq  uint64
-	later   []tea.Cmd // commands produced while handling a message, run after it
+	pending  *PendingSet
+	formSeq  uint64
+	writes   map[string]*formWrite // form writes in flight (create, edit, comment, delete)
+	manualAt time.Time             // the last press of r: a manual refresh is fresh since then (cache.md 10)
+	rr       rereads               // delayed re-reads after creates and board changes (reread.go)
+	drafts   draftQueue            // quick-add draft saves, one at a time
+	runSeq   uint64
+	later    []tea.Cmd // commands produced while handling a message, run after it
 }
 
 type lastKey struct {
@@ -611,7 +612,8 @@ func (a *App) global(act Action) tea.Cmd {
 	case ActQuit:
 		return a.quit(false)
 	case ActRefresh:
-		return a.refresh(ReasonRefresh)
+		a.manualAt = a.now()
+		return a.refresh(ReasonManual)
 	}
 	return nil
 }
@@ -758,46 +760,64 @@ func (a *App) visibleErr() *domain.Error {
 // error first refreshes metadata and the session, because the account may
 // have changed (finding 2, @cto's ruling).
 func (a *App) refresh(reason LoadReason) tea.Cmd {
-	if reason == ReasonRefresh && (needsRecovery(a.visibleErr()) || a.top(a.active).ID() == ScreenBoardSetup) {
+	if reason == ReasonManual && (needsRecovery(a.visibleErr()) || a.top(a.active).ID() == ScreenBoardSetup) {
 		if a.busy(Slot{Kind: SlotRecover}) {
 			return nil
 		}
 		return a.recover()
 	}
+	if reason == ReasonManual {
+		return tea.Batch(a.reload(reason), a.reloadMetaFresh())
+	}
 	return a.reload(reason)
 }
 
 // reload restarts the visible read (tui.md 7.6). A detail counts as busy
-// while its body or its comments are loading (finding 8).
+// while its body or its comments are loading (finding 8). A view that is
+// already loading is left alone, except by a manual refresh, which replaces
+// a load that is not fresh: r means "read GitHub now", and an automatic
+// refresh in flight may be answered from the service's cache.
 func (a *App) reload(reason LoadReason) tea.Cmd {
 	switch s := a.top(a.active).(type) {
 	case *IssueList:
-		if a.busy(Slot{Kind: SlotIssues}) {
+		if a.keepLoading(reason, Slot{Kind: SlotIssues}) {
 			return nil
 		}
 		return a.loadIssues(reason)
 	case *PRList:
-		if a.busy(Slot{Kind: SlotPRs}) {
+		if a.keepLoading(reason, Slot{Kind: SlotPRs}) {
 			return nil
 		}
 		return a.loadPRs(reason)
 	case *Board, *BoardSetup:
-		if a.busy(Slot{Kind: SlotBoard}) {
+		if a.keepLoading(reason, Slot{Kind: SlotBoard}) {
 			return nil
 		}
 		return a.loadBoard(false, reason)
 	case *IssueDetail:
-		if a.busy(Slot{Kind: SlotIssue, Number: s.number}) || a.busy(Slot{Kind: SlotIssueComments, Number: s.number}) {
+		if a.keepLoading(reason, Slot{Kind: SlotIssue, Number: s.number}, Slot{Kind: SlotIssueComments, Number: s.number}) {
 			return nil
 		}
 		return a.loadIssue(s.number, reason)
 	case *PRDetail:
-		if a.busy(Slot{Kind: SlotPR, Number: s.number}) || a.busy(Slot{Kind: SlotPRComments, Number: s.number}) {
+		if a.keepLoading(reason, Slot{Kind: SlotPR, Number: s.number}, Slot{Kind: SlotPRComments, Number: s.number}) {
 			return nil
 		}
 		return a.loadPR(s.number, reason)
 	}
 	return nil
+}
+
+// keepLoading reports whether a reload for reason must leave the view's
+// loads in flight: always when one is busy, unless reason is manual and none
+// of the busy loads is.
+func (a *App) keepLoading(reason LoadReason, slots ...Slot) bool {
+	for _, sl := range slots {
+		if r, ok := a.inflight[sl]; ok && (reason != ReasonManual || r.Reason == ReasonManual) {
+			return true
+		}
+	}
+	return false
 }
 
 // ---- auto-refresh (tui.md 7.7) ----

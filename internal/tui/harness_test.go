@@ -42,6 +42,12 @@ type harness struct {
 type hgate struct {
 	g    *servicetest.Gate
 	done bool
+	// The call this gate holds: the pos-th call (0-based) to method with
+	// this number. A gate is consumed by the first matching call after it
+	// is registered, so pos is known when it is registered.
+	method string
+	number int
+	pos    int
 }
 
 type harnessOpt func(*harness, *Deps, *Options)
@@ -145,8 +151,13 @@ func (h *harness) handle(msg tea.Msg) {
 	h.dispatch(cmd)
 }
 
-// blocked counts goroutines parked at a gate the test has not released.
+// blocked counts goroutines parked at a gate the test has not released. A
+// call held at a gate can also leave it without a release, when the code
+// under test cancels its context (a manual refresh replacing an automatic
+// one, a pop): it then counts as running until its message is handled, so
+// settle waits for it like any other Cmd.
 func (h *harness) blocked() int {
+	calls := h.fake.Calls()
 	n := 0
 	for _, g := range h.gates {
 		if g.done {
@@ -154,11 +165,27 @@ func (h *harness) blocked() int {
 		}
 		select {
 		case <-g.g.Started:
-			n++
 		default:
+			continue
+		}
+		if c, ok := nthCall(calls, g.method, g.number, g.pos); ok && c.EndOrder == 0 {
+			n++
 		}
 	}
 	return n
+}
+
+// nthCall is the pos-th call (0-based) to method with number.
+func nthCall(calls []servicetest.Call, method string, number, pos int) (servicetest.Call, bool) {
+	for _, c := range calls {
+		if c.Method == method && c.Args.Number == number {
+			if pos == 0 {
+				return c, true
+			}
+			pos--
+		}
+	}
+	return servicetest.Call{}, false
 }
 
 // settleDeadline only detects a hang: settle returns as soon as everything
@@ -226,9 +253,27 @@ func (h *harness) typeText(s string) {
 	}
 }
 
-// hold registers a gate the harness knows about.
+// hold registers a gate the harness knows about. It holds the first call to
+// method with number n after every earlier gate on the same method and
+// number has caught its own.
 func (h *harness) hold(method string, n int) *hgate {
-	g := &hgate{g: h.fake.Hold(method, n)}
+	pos := 0
+	for _, c := range h.fake.Calls() {
+		if c.Method == method && c.Args.Number == n {
+			pos++
+		}
+	}
+	for _, e := range h.gates {
+		if e.method != method || e.number != n {
+			continue
+		}
+		select {
+		case <-e.g.Started:
+		default:
+			pos++ // an earlier gate still waiting for its call
+		}
+	}
+	g := &hgate{g: h.fake.Hold(method, n), method: method, number: n, pos: pos}
 	h.gates = append(h.gates, g)
 	go func() { <-g.g.Started; h.wake <- struct{}{} }()
 	return g

@@ -42,6 +42,15 @@ the git remote. Use `--project OWNER/NUMBER` for a specific board; otherwise
 todos uses the remembered choice or linked project. `todos doctor --json`
 checks credentials, repository, board and config without changing GitHub.
 
+Metadata is shared across invocations in a disposable private cache at
+`$XDG_CACHE_HOME/todos/v1` (default `~/.cache/todos/v1`). Session, labels and
+assignees expire five minutes after their GitHub read; board structure expires
+after one minute. `--fresh` ignores metadata read before the command began, while reusing new
+reads within the command. `TODOS_CACHE=off` disables cache files and keeps the
+in-process memo. Board cards, issue/PR details
+and comments are always read from GitHub. `todos doctor` reports cache usability
+without creating or writing cache files; deleting the cache directory is safe.
+
 ## TUI
 
 Run `todos`, or `todos tui issues`, `todos tui prs`, `todos tui board`.
@@ -105,7 +114,7 @@ items after checking uncertain outcomes. CLI quick-add creates no draft file.
 
 Config lives at `$XDG_CONFIG_HOME/todos/config.yml` (default `~/.config/todos/`).
 TUI drafts live under `$XDG_STATE_HOME/todos/drafts/` (default
-`~/.local/state/todos/drafts/`). No fetched GitHub data is cached on disk.
+`~/.local/state/todos/drafts/`).
 
 ## Give the skill to an agent
 

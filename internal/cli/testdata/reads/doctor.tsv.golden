@@ -4,3 +4,4 @@ Repository	true	pkieltyka/todos
 Board	true	todos	
 Board access	true		
 Config	true	No config file	
+Cache	true	cache disabled (not configured)	

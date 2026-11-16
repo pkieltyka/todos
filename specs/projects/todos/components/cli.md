@@ -56,6 +56,7 @@ type Wiring struct {
     Service service.Service
     Drafts tui.DraftStore
     ConfigWarning func() *domain.Error
+    CacheCheck func() domain.DoctorCheck
 }
 type Dependencies struct {
     In io.Reader
@@ -434,8 +435,8 @@ func tsvField(string) string
 
 - Preserve context.Canceled through Error.Unwrap/partial wrapping. An internal canceled read without signal is not automatically exit130.
 - Quick-add signal cancellation still emits accounting/error documents when graceful completion permits; no writes continue after return.
-- Doctor uses FirstFailure for exit kind while always printing its report. Config/board check failures alone return0.
-- A valid doctor invocation whose local wiring itself fails still prints a six-row doctorWiringFailure report, marking unavailable checks as blocked with that cause; it never falls back to a generic stdout-empty error. Argument/unknown-flag parse errors remain ordinary usage errors.
+- Doctor uses FirstFailure for exit kind while always printing its report. Config/board/cache check failures alone return0.
+- A valid doctor invocation whose local wiring itself fails still prints a seven-row report (six remote/config rows plus the cache diagnostic), marking unavailable checks as blocked with that cause; it never falls back to a generic stdout-empty error. Argument/unknown-flag parse errors remain ordinary usage errors.
 - No cancellation permits retry of a create/comment; uncertain means check GitHub before resubmitting.
 
 ## Embedded skill contract
@@ -482,3 +483,14 @@ func TestSkillMatchesCLI(t *testing.T)
 - TestImportRules inspects module Go imports using go/parser; enforce architecture2's exact allowed project-import edges, including test helpers. No imports of github/config from TUI; service imports only domain/quickadd.
 - TestSkillMatchesCLI parses shell fenced examples and declared command/flag lists from the embedded skill; resolve each command in NewRoot, check local/inherited flags and exclusive options. Examples are parsed, never executed against GitHub.
 - Release validation during implementation: gofmt -l . && go vet ./... && go test -race ./.... Live tests remain opt-in/read-only.
+
+## Structure-cache wiring (Phase 10)
+
+- Add global `--fresh`; Cobra's persistent pre-run marks the invocation context once with `domain.WithFreshSince(ctx, deps.Now())`. This also reaches the TUI context; ordinary manual-refresh marks are owned by tui.
+- CLI constructs `cache.New(root, cache.Options{Now: deps.Now})`, passes it as `service.Options.Cache`, and injects a read-only `CacheCheck` callback. Constructors create no cache directory.
+- Root: absolute `XDG_CACHE_HOME` plus `todos/v1`, otherwise `~/.cache/todos/v1`; a relative XDG path is ignored. An unavailable home disables persistence rather than failing because of the cache.
+- `TODOS_CACHE=off` (case-insensitive) disables persistence only; the normal finite in-process memo stays active. It sets no fresh mark and no cache files are read or created.
+- `doctor` carries its start-time freshness cutoff and reuses a request-local memo, without cache-file reads or fills; it prints check 7, Cache, on stdout in text/TSV/JSON. The directory diagnostic does not instantiate entries, repair permissions or write a key. Cache failure is advisory; only checks 1–3 determine exit status.
+- If a Service fixture supplies the old six-row report, CLI adds the cache check without changing the shared fake. A wiring failure still emits all seven checks, with cache diagnosis independent of remote failures.
+- Metadata JSON is internal only. Public success/error DTO shapes are unchanged except the appended doctor check. The key/fingerprint is never printed.
+- Tests: `TestCache_FreshFlagAndDoctorContexts`, `TestCache_OffAndConstructionAreSideEffectFree`, `TestCache_DoctorReportsUnusableWithoutFailingOrCreating`; updated doctor goldens cover all output modes.

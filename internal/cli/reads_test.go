@@ -287,7 +287,7 @@ func TestDoctor_AlwaysStdoutAndFullReport(t *testing.T) {
 			if asJSON {
 				var dto DoctorDTO
 				json.Unmarshal([]byte(out), &dto)
-				if len(dto.Checks) != 6 || dto.OK {
+				if len(dto.Checks) != 7 || dto.OK {
 					t.Fatal(dto)
 				}
 			}
@@ -320,7 +320,7 @@ func TestDoctor_WiringFailureStillStdout(t *testing.T) {
 	code := Run(context.Background(), []string{"doctor", "--json"}, deps)
 	var dto DoctorDTO
 	json.Unmarshal(out.Bytes(), &dto)
-	if code != 6 || stderr.Len() != 0 || len(dto.Checks) != 6 {
+	if code != 6 || stderr.Len() != 0 || len(dto.Checks) != 7 {
 		t.Fatal(code, out.String(), stderr.String())
 	}
 }
@@ -414,13 +414,13 @@ func TestCLI_UsesSharedFixturesAndGates(t *testing.T) {
 	}
 }
 
-func TestDoctor_ServiceFailureStillSixRows(t *testing.T) {
+func TestDoctor_ServiceFailureStillSevenRows(t *testing.T) {
 	f := servicetest.New(servicetest.DefaultFixture())
 	f.Hold("Doctor", 0).Fail(&domain.Error{Kind: domain.ErrTimeout, Message: "interrupted check"})
 	out, stderr, code := runFake(f, false, "doctor", "--json")
 	var dto DoctorDTO
 	json.Unmarshal([]byte(out), &dto)
-	if code != 1 || stderr != "" || len(dto.Checks) != 6 {
+	if code != 1 || stderr != "" || len(dto.Checks) != 7 {
 		t.Fatal(code, out, stderr)
 	}
 }

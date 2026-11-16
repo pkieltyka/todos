@@ -213,8 +213,8 @@ func TestLive_ReadPath(t *testing.T) {
 	})
 	t.Run("Doctor", func(t *testing.T) {
 		report, err := s.Doctor(ctx)
-		if len(report.Checks) != 6 {
-			t.Fatal("doctor did not report six checks")
+		if len(report.Checks) != 7 {
+			t.Fatal("doctor did not report seven checks")
 		}
 		wantOK := report.Checks[0].OK && report.Checks[1].OK && report.Checks[2].OK
 		if report.OK != wantOK || (err == nil) != wantOK {

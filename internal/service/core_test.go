@@ -35,6 +35,7 @@ type fakeBackend struct {
 	fail          map[string]error
 	labelStarted  chan struct{}
 	labelRelease  chan struct{}
+	credentialKey string
 }
 
 func backendFixture() *fakeBackend {
@@ -60,6 +61,18 @@ func (b *fakeBackend) count(name string) int {
 }
 func (b *fakeBackend) Credentials(context.Context) (domain.CredentialInfo, error) {
 	return domain.CredentialInfo{Source: "test"}, b.record(backendCall{Name: "Credentials"})
+}
+func (b *fakeBackend) CredentialKey(ctx context.Context) (string, error) {
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	if err := b.record(backendCall{Name: "CredentialKey"}); err != nil {
+		return "", err
+	}
+	if b.credentialKey != "" {
+		return b.credentialKey, nil
+	}
+	return strings.Repeat("a", 64), nil
 }
 func (b *fakeBackend) DoctorScopes(context.Context) (domain.CredentialInfo, error) {
 	return domain.CredentialInfo{Scopes: []string{"repo", "project"}}, b.record(backendCall{Name: "DoctorScopes"})
@@ -197,7 +210,7 @@ func TestMetadata_TTLAndCopies(t *testing.T) {
 	if labels[0].Name != "bug" || b.count("Labels") != 1 {
 		t.Fatal(labels)
 	}
-	now = now.Add(time.Minute)
+	now = now.Add(5 * time.Minute)
 	s.Labels(ctx)
 	if b.count("Labels") != 2 {
 		t.Fatal("TTL did not expire")
@@ -435,7 +448,7 @@ func TestBoardCandidates_GroupedDedupAndUsability(t *testing.T) {
 func TestDoctor_NeverWrites(t *testing.T) {
 	b := backendFixture()
 	report, err := newCore(b, &fakeSettings{}).Doctor(context.Background())
-	if err != nil || !report.OK || len(report.Checks) != 6 {
+	if err != nil || !report.OK || len(report.Checks) != 7 {
 		t.Fatal(report, err)
 	}
 	for _, c := range b.calls {
@@ -444,12 +457,12 @@ func TestDoctor_NeverWrites(t *testing.T) {
 		}
 	}
 }
-func TestDoctor_AlwaysSixRows(t *testing.T) {
+func TestDoctor_AlwaysSevenRows(t *testing.T) {
 	for _, method := range []string{"Credentials", "Viewer", "Repository", "LinkedProjects", "ProjectItems"} {
 		b := backendFixture()
 		b.fail[method] = &domain.Error{Kind: domain.ErrAuth, Message: "rejected"}
 		r, _ := newCore(b, &fakeSettings{}).Doctor(context.Background())
-		if len(r.Checks) != 6 {
+		if len(r.Checks) != 7 {
 			t.Fatal(method, r)
 		}
 	}

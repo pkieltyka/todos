@@ -7,6 +7,7 @@ import (
 )
 
 type Backend interface {
+	CredentialKey(context.Context) (string, error)
 	Credentials(context.Context) (domain.CredentialInfo, error)
 	DoctorScopes(context.Context) (domain.CredentialInfo, error)
 	Viewer(context.Context) (domain.User, error)

@@ -15,12 +15,16 @@ type LoadReason int
 
 const (
 	ReasonInitial LoadReason = iota
-	ReasonRefresh
+	ReasonRefresh            // a reload the app starts itself, such as after a project switch; not fresh
 	ReasonAuto
 	ReasonQueryChanged
 	ReasonOpen
 	ReasonReread
 	ReasonPrecheck
+	// ReasonManual is the user's own refresh: the r key, and the recovery it
+	// starts after an auth or setup error. Its reads are marked fresh, so
+	// the service skips its memo and the read cache (cache.md 10).
+	ReasonManual
 )
 
 // Reads carry the request ID and the time the request was sent (A5 rule 7).

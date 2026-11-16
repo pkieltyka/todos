@@ -18,7 +18,7 @@ Packages: internal/service, internal/quickadd, internal/config and internal/serv
 
 - service never imports github, config, CLI or TUI. Its dependencies are interfaces.
 - Synchronous/context-aware methods; RateLimit is a nonblocking memory snapshot.
-- No cached issues, PRs, comments or board contents. No issue locks, global semaphore, file locks or cross-process conflict detection.
+- Structure policy follows [cache.md](cache.md). Board cards, issue/PR details, comments, PR lists and search stay live. No issue locks, global semaphore, file locks or cross-process conflict detection.
 - The caller controls concurrency: TUI serialises one issue's changes and allows four issue queues; CLI runs one operation.
 
 ## Service interface
@@ -76,10 +76,12 @@ type Service interface {
 type Options struct {
     ResolveRepository func(context.Context) (domain.RepoRef, error)
     Project string
+    Cache CacheStore
+    CacheCheck func() domain.DoctorCheck
     Now func() time.Time
     Wait func(context.Context, time.Duration) error // real timer; fake advances immediately
 }
-type metadata[T any] struct { Value T; ExpiresAt time.Time; Valid bool }
+type metadata[T any] struct { Value T; ReadAt, ExpiresAt time.Time; Valid bool; Space, Key string }
 type core struct {
     backend Backend
     settings SettingsStore
@@ -102,9 +104,9 @@ func ParseProjectRef(text string, repo domain.RepoRef) (domain.ProjectRef, error
 ```
 
 - New performs no network/filesystem work. CLI injects one lazy cached repository resolver.
-- Session memoises viewer and canonical repo for the process. It returns IssuesEnabled=false as data so PR/Board tabs remain reachable.
+- Session memoises viewer and canonical repo for five minutes from the GitHub read send time. It returns IssuesEnabled=false as data so PR/Board tabs remain reachable.
 - Issue-use-case methods check enabled issues and return issues_disabled when necessary.
-- Labels, assignable users and board metadata expire after60 seconds; do not cache failures.
+- Labels and assignable users expire after five minutes; resolved board metadata expires after 60 seconds; do not cache failures.
 - Check metadata under mu, release before a fill, publish only if its generation is still current; duplicate concurrent metadata fills are acceptable.
 - Return deep copies. Snapshot selected board once per use case; never switch target board mid-write.
 - RefreshMetadata invalidates memoised metadata/session, calls backend.RefreshCredentials, then Session; a failed operation is never replayed.
@@ -121,6 +123,7 @@ Implemented by *github.Client without a github -> service import. Wiring checks 
 
 ```go
 type Backend interface {
+    CredentialKey(context.Context) (string, error)
     Credentials(context.Context) (domain.CredentialInfo, error)
     DoctorScopes(context.Context) (domain.CredentialInfo, error)
     Viewer(context.Context) (domain.User, error)
@@ -215,7 +218,7 @@ Board algorithm:
 | ListIssueComments / ListPRComments | One oldest-first connection page; caller caps500 |
 | ListPRs | One native PR page, updated-desc; State only, no author Search |
 | GetPR | Body, rollups, mergeable, complete same-repo closing refs; comments separate |
-| Labels / AssignableUsers | Complete pageable repository metadata then memoise60s |
+| Labels / AssignableUsers | Complete pageable metadata, memoise/persist for five minutes from readAt |
 
 - Page size0 means100; otherwise1..100. Pass GitHub cursor unchanged.
 - Caller must repeat filters and clear the cursor when filters change; service does not validate cursor ownership.
@@ -321,7 +324,7 @@ RunQuickAdd:
 
 ## Read-only doctor
 
-Always return a full six-row DoctorReport, even if early remote checks fail.
+Always return a full seven-row DoctorReport, even if early remote checks fail.
 
 | Order | Check | Pass evidence |
 |---|---|---|
@@ -331,9 +334,10 @@ Always return a full six-row DoctorReport, even if early remote checks fail.
 | 4 | Board | Resolution succeeded with valid Status metadata |
 | 5 | Board access | Item read succeeded and Project.viewerCanUpdate=true |
 | 6 | Config | SettingsStore.Check says readable/valid or absent |
+| 7 | Cache | Read-only directory check reports its path and usability; disabled is informational |
 
 - Dependent inaccessible checks become failed rows with blocked-by-prior-check detail and actionable hint; still run config check.
-- OK and exit status depend ONLY on checks1..3. Board/config problems do not change the exit code.
+- OK and exit status depend ONLY on checks1..3. Board/config/cache problems do not change the exit code.
 - FirstFailure holds first failing check1..3, otherwise nil. Report and error are both returned on failure.
 - Never create, edit, close, add, restore or delete to test permissions. Capabilities are reports, not guarantees.
 - CLI prints this report on stdout in all modes/verdicts; it does not replace it with a generic error envelope.
@@ -547,3 +551,30 @@ No x/sys, file-lock package or conflict-token subsystem is added.
 
 Use fake Backend/SettingsStore for service tests; shared servicetest for face tests. Fixtures and gates never need credentials or the network. Run gofmt -l ., go vet ./..., go test -race ./... during implementation; this documentation task creates no implementation/test files.
 
+
+## Structure cache (Phase 10)
+
+`internal/cache` stores disposable bytes; the service owns all policy and imports no cache implementation.
+
+```go
+type CacheStore interface {
+    Get(space, key string) (data []byte, readAt time.Time, ok bool)
+    Put(space, key string, data []byte, readAt time.Time)
+    Epoch(space string) string
+    Bump(space string) bool // false if the epoch could not be written
+    Drop(space, prefix string)
+}
+```
+
+- `Options.Cache == nil` disables persistence. The existing per-service memo remains available with finite expiry.
+- Resolve `Backend.CredentialKey` before persistent metadata access. A changed credential/repository clears the memo and selects a new space; raw credentials stay in github. Cache-key or repository-resolution failures disable file access for that read; the ordinary fetch decides the error.
+- Space: `<credential>/structure/<host>/<owner>/<repo>`, normalized to lower case, using GitHub's canonical repository name once a live session has resolved it. A session is never persisted under a name its identity check would reject. An old alias may need a live session read in a new process; aliases are not persisted. Keys: `session`, `labels`, `users`, and `board/linked` or `board/` plus the normalized explicit/remembered ProjectRef. `UseBoard` installs/persists its new board under its own key.
+- Capture readAt before the first GitHub request for a value. Memory and file share readAt and expire at readAt+TTL; a file hit never restarts expiry.
+- `domain.WithFreshSince(ctx, since)` / `domain.FreshSince(ctx)` reject memo/files whose readAt is before the mark. Values read at or after it remain reusable by nested calls and continuation pages; a later inherited mark wins. Cancellation is checked before cache access and after remote fills.
+- Publish only the current generation. `RefreshMetadata` clears the memo, records a cutoff, drops structure files, refreshes credentials and reads Session fresh. A file with an earlier readAt is ignored even if another process writes it after the refresh.
+- Each backend mutation result is observed once inside service. A not_found or invalid_input refusal drops structure and memo entries. Other errors retain them; no request is replayed. Quick-add wraps its run-local pacer with its own refusal observer, so both the parent and the run drop their memo on a refusal, including when a label is deleted mid-run.
+- Invalid payloads are misses. Validate required domain fields and session repository identity; board identity is separated by the board-reference key. Clone returned values. Recheck the space after a fill so a credential change advances the generation before publication; the generation check also prevents persistence, without a second identity comparison.
+- Doctor has a request-local memo with its start-time mark; nested checks reuse session/board values, and Viewer is read once. It never reads or fills cache files. Its cache check examines directory metadata only: no entry reads, file creation, writes or permission repairs.
+- Epoch storage is implemented now; content probes, epoch bumps around service writes and AsOf belong to Phase 11. No issue pages or board cards are persisted in Phase 10.
+
+Tests: `TestStructure_CacheCannotChooseTheReadError`, `TestStructure_SessionFromAnotherRepositoryIsMiss`, `TestStructure_RepositoryCaseSharesSpace`, `TestStructure_RenamedRepositoryUsesCanonicalSpace`, `TestStructure_QuickRunRefusalDropsBothMemos`, `TestStructure_FreshNestedReadsReachEachBackendOnce` (file and nil stores), `TestStructure_NoFileStoreKeepsOriginalMemoRequestCounts` (marked fresh), `TestStructure_PersistentAcrossServicesAndFreshBypassesBoth`, `TestStructure_OneExpiryFromOriginalReadAt`, `TestStructure_ReadBeforeRefreshStoredAfterIsMiss`, `TestStructure_AnotherServiceReadHeldAcrossRefresh`, `TestStructure_CredentialChangesPartitionMemoAndFile`, `TestStructure_DoctorBypassesWarmCacheAndWritesNothing`, `TestStructure_WriteRefusalsDropOnlyOnNotFoundOrInvalid`.
