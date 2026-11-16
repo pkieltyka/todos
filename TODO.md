@@ -11,7 +11,7 @@ The build is complete; nothing is in progress.
 - [ ] Long URLs in rendered Markdown break at a hyphen
 - [ ] A board's own automations have the last word: on this board, a new issue created with No status usually ends up in Backlog
 - [ ] Detection of the board auto-add rejection depends on the wording of GitHub's error message
-- [ ] `go install github.com/pkieltyka/todos@latest` has not been tried yet
+- [ ] While the repository is private, `go install github.com/pkieltyka/todos@latest` needs `GOPRIVATE=github.com/pkieltyka/todos`; tried and working that way on 2026-11-14
 
 ## Done
 
@@ -45,7 +45,7 @@ The build is complete; nothing is in progress.
 - UI libraries: `charm.land/bubbletea/v2` v2.1.1, `charm.land/lipgloss/v2` v2.1.0, `charm.land/bubbles/v2` v2.2.1.
 - @cto is the only one who commits.
 - Peter asked that the team does not ask him questions; @cto decides and reports.
-- v1 is merged to `master` (PR 83, `a33a677`); follow-up work is on branch `rename-cleanup`, not pushed; the team pushes only when Peter asks, as for PR 83.
+- v1 is merged to `master` (PR 83, `a33a677`), and so is the rename cleanup with the detail-screen fix (PR 84, `3248c4b`); work now happens on `master`; the team pushes only when Peter asks.
 - Each phase: developer, `make check`, @reviewer, fixes, @cto review and commit.
 - When two phases finish together, the developers cross-review each other in addition to @reviewer.
 - The shared test fake is a direct in-memory implementation in `internal/service/servicetest`.
