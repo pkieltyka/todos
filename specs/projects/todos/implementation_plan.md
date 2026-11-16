@@ -57,7 +57,7 @@ diff, the developer fixes what is found, @cto reviews and commits. @pm updates
   `TestSkillMatchesCLI`; README; opt-in live tests; a full dogfood pass of
   every command and every TUI action against the real repository; remove
   `internal/tools/deps.go`; polish.
-- [ ] **Phase 10: Cache, structure** (core, with a small TUI change).
+- [x] **Phase 10: Cache, structure** (core, with a small TUI change).
   `internal/cache`, the file store. `CacheStore` and `CredentialKey`. The
   service's metadata memo made persistent: session, labels and users for 5
   minutes, the board for 1. `WithFresh`, the `--fresh` flag, `TODOS_CACHE=off`,
