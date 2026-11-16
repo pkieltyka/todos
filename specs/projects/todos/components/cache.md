@@ -170,8 +170,9 @@ What @lead-dev observed on the live repository and board:
 
 `ListIssues` (without search), per page:
 
-1. If the call is marked fresh, or the store is nil: read GitHub. Store the
-   result if rule 4 allows. Done.
+1. If the call is marked fresh, or the store is nil: read GitHub, with no
+   probe, and store nothing. Done. (Without a probe there is no token to store
+   a page under; the next unmarked read stores it.)
 2. Read the space's epoch. Probe. If the probe fails for any reason, read
    GitHub and store nothing: a failed probe is never evidence.
 3. Look up the page. Use it when its token equals the probe's, its epoch equals
