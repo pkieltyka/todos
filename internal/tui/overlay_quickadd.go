@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"github.com/pkieltyka/todos/internal/domain"
 )
@@ -173,7 +174,7 @@ func (q *QuickAdd) Hints(c *Ctx) []hint {
 		}
 		return []hint{{"esc", "stop after this"}}
 	}
-	hs := []hint{{"ctrl+s", "preview"}}
+	hs := []hint{{c.Keys.Binding(ActSubmit).Help().Key, "preview"}}
 	if c.a.deps.Env.Editor != nil {
 		hs = append(hs, hint{"ctrl+o", "$EDITOR"})
 	}
@@ -333,6 +334,14 @@ func (q *QuickAdd) onWriteKey(c *Ctx, k tea.KeyPressMsg) (tea.Cmd, OverlayResult
 		}
 		return nil, Keep // read-only until the draft is restored
 	}
+	if key.Matches(k, c.Keys.Binding(ActSubmit)) {
+		if strings.TrimSpace(q.editor.Value()) == "" {
+			return a.toastInfo("Nothing to create"), Keep
+		}
+		q.step = qaPreview
+		q.banner = nil
+		return tea.Batch(q.save(a), q.replan(a)), Keep // a step change saves
+	}
 	switch k.String() {
 	case "esc":
 		return q.save(a), Close // the draft is kept
@@ -348,13 +357,6 @@ func (q *QuickAdd) onWriteKey(c *Ctx, k tea.KeyPressMsg) (tea.Cmd, OverlayResult
 			return cmd
 		}))
 		return nil, Keep
-	case "ctrl+s":
-		if strings.TrimSpace(q.editor.Value()) == "" {
-			return a.toastInfo("Nothing to create"), Keep
-		}
-		q.step = qaPreview
-		q.banner = nil
-		return tea.Batch(q.save(a), q.replan(a)), Keep // a step change saves
 	}
 	before := q.editor.Value()
 	cmd, _ := q.editor.Update(c, k)

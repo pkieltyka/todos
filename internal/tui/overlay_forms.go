@@ -5,15 +5,16 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/pkieltyka/todos/internal/domain"
 )
 
 // The create and edit form, the comment form (UI 3.6, 3.7, tui.md 8.9, 14).
-// Both are full-body overlays in text mode: letters are text, and only esc,
-// tab, enter and ctrl+ keys are commands. They wait for GitHub (A5): no
-// optimistic state.
+// Both are full-body overlays in text mode and handle form shortcuts before
+// passing text input to the editor. They wait for GitHub (A5) before updating
+// issue state.
 
 // hint is one footer entry of an overlay.
 type hint struct{ key, desc string }
@@ -127,7 +128,7 @@ func (f *IssueForm) Hints(c *Ctx) []hint {
 	if f.edit {
 		verb = "save"
 	}
-	hs := []hint{{"tab", "field"}, {"ctrl+s", verb}, {"ctrl+r", "preview"}}
+	hs := []hint{{"tab", "field"}, {c.Keys.Binding(ActSubmit).Help().Key, verb}, {"ctrl+r", "preview"}}
 	if c.a.deps.Env.Editor != nil {
 		hs = append(hs, hint{"ctrl+o", "$EDITOR"})
 	}
@@ -236,9 +237,9 @@ func (f *IssueForm) Update(c *Ctx, msg tea.Msg) (tea.Cmd, OverlayResult) {
 }
 
 func (f *IssueForm) onKey(c *Ctx, k tea.KeyPressMsg) (tea.Cmd, OverlayResult) {
-	key := k.String()
+	pressed := k.String()
 	if f.saving {
-		if key == "esc" && !f.edit {
+		if pressed == "esc" && !f.edit {
 			c.a.pushOverlay(newConfirm("The issue may still be created. Close the form anyway?", func(*Ctx) tea.Cmd {
 				return c.a.closeOverlay(f)
 			}))
@@ -246,12 +247,15 @@ func (f *IssueForm) onKey(c *Ctx, k tea.KeyPressMsg) (tea.Cmd, OverlayResult) {
 		return nil, Keep
 	}
 	if f.loading {
-		if key == "esc" {
+		if pressed == "esc" {
 			return nil, Close
 		}
 		return nil, Keep
 	}
-	switch key {
+	if key.Matches(k, c.Keys.Binding(ActSubmit)) {
+		return f.submit(c), Keep
+	}
+	switch pressed {
 	case "esc":
 		if f.dirty() {
 			c.a.pushOverlay(newConfirm("Discard changes?", func(*Ctx) tea.Cmd { return c.a.closeOverlay(f) }))
@@ -264,8 +268,6 @@ func (f *IssueForm) onKey(c *Ctx, k tea.KeyPressMsg) (tea.Cmd, OverlayResult) {
 	case "shift+tab":
 		f.cycle(-1)
 		return nil, Keep
-	case "ctrl+s":
-		return f.submit(c), Keep
 	case "ctrl+r", "ctrl+o":
 		cmd, _ := f.body.Update(c, k)
 		return cmd, Keep
@@ -279,7 +281,7 @@ func (f *IssueForm) onKey(c *Ctx, k tea.KeyPressMsg) (tea.Cmd, OverlayResult) {
 		cmd, _ := f.body.Update(c, k)
 		return cmd, Keep
 	case fieldAssignees, fieldLabels, fieldStatus:
-		if key == "enter" {
+		if pressed == "enter" {
 			return f.openPicker(c), Keep
 		}
 	}
@@ -561,7 +563,7 @@ func (f *CommentForm) Position(*Ctx) string {
 	return "L" + itoaPlain(l) + ":C" + itoaPlain(col)
 }
 func (f *CommentForm) Hints(c *Ctx) []hint {
-	hs := []hint{{"ctrl+s", "comment"}, {"ctrl+r", "preview"}}
+	hs := []hint{{c.Keys.Binding(ActSubmit).Help().Key, "comment"}, {"ctrl+r", "preview"}}
 	if c.a.deps.Env.Editor != nil {
 		hs = append(hs, hint{"ctrl+o", "$EDITOR"})
 	}
@@ -594,14 +596,14 @@ func (f *CommentForm) Update(c *Ctx, msg tea.Msg) (tea.Cmd, OverlayResult) {
 		if f.sending {
 			return nil, Keep
 		}
-		switch m.String() {
-		case "esc":
+		if m.String() == "esc" {
 			if strings.TrimSpace(f.body.Value()) != "" {
 				c.a.pushOverlay(newConfirm("Discard the comment?", func(*Ctx) tea.Cmd { return c.a.closeOverlay(f) }))
 				return nil, Keep
 			}
 			return nil, Close
-		case "ctrl+s":
+		}
+		if key.Matches(m, c.Keys.Binding(ActSubmit)) {
 			body := f.body.Value()
 			if strings.TrimSpace(body) == "" {
 				return c.a.toastErr("Comment is empty"), Keep

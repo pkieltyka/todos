@@ -188,7 +188,7 @@ func TestQuickAdd_flushOnEveryStepChange(t *testing.T) {
 	h := newHarness(t, richFixture(), withDrafts(store))
 	h.press("A")
 	h.paste(threeItems)
-	h.press("ctrl+s") // write → preview
+	h.press("alt+s") // write → preview
 	if store.saveCount() != 1 {
 		t.Fatalf("%d saves after preview", store.saveCount())
 	}
@@ -529,7 +529,7 @@ func TestQuickAdd_footerAndReminder(t *testing.T) {
 	h := newHarness(t, richFixture(), withDrafts(newMemDrafts()))
 	h.press("A")
 	h.contains("One issue per line · indent 2+ spaces to add a body · - [x] marks it done")
-	if !strings.Contains(h.view(), "ctrl+s preview") {
+	if !strings.Contains(h.view(), "ctrl+s/alt+s preview") {
 		t.Fatal("write-step footer")
 	}
 }

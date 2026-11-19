@@ -60,7 +60,7 @@ func TestKeymap_textModeKeysFreeInTextarea(t *testing.T) {
 			}
 		}
 	}
-	for _, s := range []string{"ctrl+s", "ctrl+r", "ctrl+o", "ctrl+x"} {
+	for _, s := range []string{"ctrl+s", "alt+s", "ctrl+r", "ctrl+o", "ctrl+x"} {
 		if bound[s] {
 			t.Errorf("%s is bound by the textarea", s)
 		}

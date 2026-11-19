@@ -234,6 +234,7 @@ func keyMsg(k string) tea.KeyPressMsg {
 		"up": {Code: tea.KeyUp}, "down": {Code: tea.KeyDown}, "left": {Code: tea.KeyLeft}, "right": {Code: tea.KeyRight},
 		"ctrl+c": {Code: 'c', Mod: tea.ModCtrl}, "ctrl+d": {Code: 'd', Mod: tea.ModCtrl}, "ctrl+u": {Code: 'u', Mod: tea.ModCtrl},
 		"space": {Code: tea.KeySpace, Text: " "},
+		"alt+s": {Code: 's', Mod: tea.ModAlt},
 	}
 	if k2, ok := named[k]; ok {
 		return tea.KeyPressMsg(k2)

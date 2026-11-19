@@ -282,7 +282,7 @@ hidden (edit changes only the title and body, 4.1).
  
  
  
- tab field  ctrl+s create  ctrl+r preview  ctrl+o $EDITOR  esc cancel   L4:C19
+ tab field ctrl+s/alt+s create  ctrl+r preview  ctrl+o $EDITOR esc cancel L4:C19
 ```
 
 - `ctrl+r` swaps the body textarea for the glamour render in the same space
@@ -320,11 +320,11 @@ hidden (edit changes only the title and body, 4.1).
       go m.store.Refresh(context.Background())▌
  
  ...
- ctrl+s comment  ctrl+r preview  ctrl+o $EDITOR  esc cancel             L3:C47
+ ctrl+s/alt+s comment  ctrl+r preview  ctrl+o $EDITOR  esc cancel         L3:C47
 ```
 
 The same component as the body editor, without the field rows. An empty comment
-can't be sent: `ctrl+s` shows the toast `Comment is empty`.
+can't be sent. Either submit shortcut shows the toast `Comment is empty`.
 
 ### 3.8 Assign and label pickers
 
@@ -380,7 +380,7 @@ These are floating overlays (lipgloss v2 layers) over the dimmed current screen,
  
  
  One issue per line · indent 2+ spaces to add a body · - [x] marks it done
- ctrl+s preview  ctrl+o $EDITOR  ctrl+x discard  esc close (keeps draft)
+ ctrl+s/alt+s preview  ctrl+o $EDITOR  ctrl+x discard  esc close (keeps draft)
 ```
 
 - Opened with `A` from Issues or Board. If a draft exists for this repo it comes
@@ -605,7 +605,7 @@ Text mode (forms, filter, pickers' filter, quick add, confirm inputs):
 |---|---|
 | `tab` / `shift+tab` | next / previous field (forms) |
 | `enter` | newline in a body; next field in Title; apply in pickers and confirms |
-| `ctrl+s` | save / create / send / go to preview (quick add) |
+| `ctrl+s`, `alt+s` | save / create / send / go to preview (quick add) |
 | `ctrl+r` | toggle the Markdown preview |
 | `ctrl+o` | open the body in `$VISUAL` / `$EDITOR` |
 | `ctrl+x` | discard the quick-add draft (asks first) |
@@ -629,7 +629,7 @@ Key choices that need care:
 
 - **The bubbles textarea binds `ctrl+e` (line end) and `ctrl+p` (previous line)**, so
   those can't be the editor hand-off or preview keys. `ctrl+o`, `ctrl+r`,
-  `ctrl+s` and `ctrl+x` are free in the default textarea keymap. Raw mode turns
+  `ctrl+s`, `alt+s`, and `ctrl+x` are free in the default textarea keymap. Raw mode turns
   off XON/XOFF, so `ctrl+s` reaches us.
 - `l` is the board's "next column", so labels are on `L`. Card moves are on `<`/`>`
   rather than `H`/`L` for the same reason.

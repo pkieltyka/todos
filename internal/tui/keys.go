@@ -125,7 +125,7 @@ func DefaultKeymap() Keymap {
 	set(ActChooseProject, "P", "choose project", "P")
 	set(ActHiddenInfo, "i", "hidden items", "i")
 
-	set(ActSubmit, "ctrl+s", "save", "ctrl+s")
+	set(ActSubmit, "ctrl+s/alt+s", "submit", "ctrl+s", "alt+s")
 	set(ActPreview, "ctrl+r", "preview", "ctrl+r")
 	set(ActExternalEditor, "ctrl+o", "$EDITOR", "ctrl+o")
 	set(ActDiscardDraft, "ctrl+x", "discard draft", "ctrl+x")
@@ -210,7 +210,6 @@ var helpPairs = map[Action][2]string{
 	ActViewIssues:   {"1 2 3", "views"},
 	ActNextView:     {"tab ⇧tab", "next/prev view"},
 	ActNextField:    {"tab ⇧tab", "next/prev field"},
-	ActSubmit:       {"ctrl+s", "submit"},
 	ActDoneItems:    {"d", "done: skip/close"},
 	ActDiscardDraft: {"ctrl+x", "discard draft"},
 }

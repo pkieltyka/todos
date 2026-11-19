@@ -71,7 +71,7 @@ Run `todos`, or `todos tui issues`, `todos tui prs`, `todos tui board`.
 | `o`, `y`, `?`, `q` | Browser, copy URL, help, quit |
 
 Forms support `ctrl+r` Markdown preview, `ctrl+o` external editor (`VISUAL`,
-else `EDITOR`), and `ctrl+s` save. PRs are read-only. `--no-color` or `NO_COLOR`
+else `EDITOR`), and `ctrl+s` or `alt+s` to save. PRs are read-only. `--no-color` or `NO_COLOR`
 disables colour; `TODOS_THEME=light|dark` overrides background detection.
 
 ## CLI
@@ -97,7 +97,7 @@ must be checked on GitHub before retrying. Partial changes are retained.
 
 ## Quick add
 
-In the TUI, press `A`, write a punch list, then `ctrl+s` to preview. Choose
+In the TUI, press `A`, write a punch list, then `ctrl+s` or `alt+s` to preview. Choose
 shared assignees, labels and board status; `d` switches checked items between
 skip and file-as-closed. Press Enter to create. Drafts are saved automatically;
 a may-exist marker requires checking GitHub before resending.

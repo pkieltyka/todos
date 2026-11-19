@@ -381,7 +381,7 @@ func TestCreate_waitsThenInsertsAndSelects(t *testing.T) {
 	h.press("n")
 	h.typeText("A new thing")
 	g := h.hold("CreateIssue", 0)
-	h.press("ctrl+s")
+	h.press("alt+s")
 	h.contains("Creating…")
 	if n := len(h.app.store.Issues.Numbers); n != 4 {
 		t.Fatal("inserted before GitHub answered")
@@ -525,7 +525,7 @@ func TestEdit_noConflict_sendsOnlyChangedFields(t *testing.T) {
 	h := newHarness(t, richFixture())
 	h.press("e")
 	h.typeText("!")
-	h.press("ctrl+s")
+	h.press("alt+s")
 	e := h.calls("EditIssue")[0].Args.Edit
 	if e.Title == nil || e.Body != nil {
 		t.Fatalf("edit %+v", e)
@@ -550,7 +550,7 @@ func TestComment_emptyRefused_successAppends(t *testing.T) {
 	h.press("enter", "c", "ctrl+s")
 	h.contains("Comment is empty")
 	h.typeText("Looks good")
-	h.press("ctrl+s")
+	h.press("ctrl+r", "alt+s")
 	if n := len(h.calls("Comment")); n != 1 {
 		t.Fatal("comment not sent")
 	}

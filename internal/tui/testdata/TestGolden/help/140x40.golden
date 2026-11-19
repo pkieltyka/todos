@@ -16,8 +16,8 @@
                                                D    delete
 
  Writing · forms, comments, quick add
- ctrl+s    submit                              ctrl+o    $EDITOR                             d         done: skip/close
- ctrl+r    preview                             tab ⇧tab  next/prev field                     ctrl+x    discard draft
+ ctrl+s/alt+s  submit                          ctrl+o    $EDITOR                             d       done: skip/close
+ ctrl+r        preview                         tab ⇧tab  next/prev field                     ctrl+x  discard draft
 
 
 

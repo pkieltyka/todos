@@ -1258,7 +1258,7 @@ UI 4 verbatim:
 | `ActHiddenInfo` | `i` | hidden items |
 | `ActHelp` | `?` | help |
 | `ActQuit` | `q` | quit |
-| `ActSubmit` | `ctrl+s` | save / create / send / preview |
+| `ActSubmit` | `ctrl+s`, `alt+s` | save / create / send / preview |
 | `ActPreview` | `ctrl+r` | preview |
 | `ActExternalEditor` | `ctrl+o` | $EDITOR |
 | `ActDiscardDraft` | `ctrl+x` | discard draft |
@@ -1312,7 +1312,7 @@ none of them can bind a key the keymap does not know.
   actions and Views & app (`helpGroups`), one column each; paired keys use
   `helpPairs` (`j/k ↓/↑`, `< >`, `tab ⇧tab`). On the Issues, Issue and Board
   screens a **Writing** block follows (`writingActions`): the keys inside the
-  forms, the comment form and quick add (`ctrl+s`, `ctrl+r`, `ctrl+o`, `tab
+  forms, the comment form and quick add (`ctrl+s` / `alt+s`, `ctrl+r`, `ctrl+o`, `tab
   ⇧tab`, `d`, `ctrl+x`), since help cannot open while typing (Phase 9).
   `j`/`k` scroll; `esc` or `?` close. bubbles' `help.Model` is not used.
 
@@ -1330,7 +1330,7 @@ context-dependent keys:
 | `y` | CopyURL, Yes | Yes only inside a Confirm |
 | `o` | Browser, Overwrite | Overwrite only inside Conflict |
 
-`TestKeymap_textModeKeysFreeInTextarea` asserts that `ctrl+s`, `ctrl+r`,
+`TestKeymap_textModeKeysFreeInTextarea` asserts that `ctrl+s`, `alt+s`, `ctrl+r`,
 `ctrl+o` and `ctrl+x` are not bound by `textarea.DefaultKeyMap()`. In bubbles
 v2.2.1 that keymap binds `ctrl+a b d e f g h k m n p t u v w`,
 `ctrl+shift+c`, `alt` combinations and named keys *(read: every binding
@@ -1574,7 +1574,7 @@ type draftQueue struct { saving bool; next *draftJob }
 
 ### 12.3 Preview
 
-`ctrl+s` in Write flushes, then sends `LoadPlan{seq, text, opts}`.
+`ctrl+s` or `alt+s` in Write flushes, then sends `LoadPlan{seq, text, opts}`.
 
 - `a`, `L` and `M` open the pickers with target = batch. Applying one changes
   `opts` and re-plans with `seq+1`. `d` toggles `opts.Checked` between `skip`
@@ -1585,7 +1585,7 @@ type draftQueue struct { saving bool; next *draftJob }
   (UI 3.10, 5.5).
 - `plan.Problems` (each with a line number) replace the create hint, and
   `enter` does nothing while there are any. A `PlanQuickAdd` error (auth,
-  network) shows the same way, and `ctrl+s` retries.
+  network) shows the same way, and either submit shortcut retries.
 - `esc` → Write, with the text unchanged. The plan is discarded.
 
 ### 12.4 Running
@@ -1720,7 +1720,7 @@ On `qaDoneMsg{res, err, d}`, `Update` adopts `d` and turns the saver back on.
     so none is cut at 80 columns; the first line is `✗ Stopped at "<title>":
     <reason>.` or `✗ Quick add stopped: <reason>.` (the service's `quick add
     stopped:` prefix is not repeated).
-- `ctrl+s` plans the remaining text again. That is "resume". There is no
+- Either submit shortcut plans the remaining text again. That is "resume". There is no
   resume state, so a created item can never be sent twice.
 
 ---
@@ -1833,7 +1833,7 @@ normalise(orig.Body)`, where `normalise` turns `\r\n` into `\n`. Bodies edited
 on github.com often contain CRLF, and the textarea holds `\n`.
 
 ```
-ctrl+s (edit):
+ctrl+s or alt+s (edit):
   edit := domain.EditIssue{}
   if title != orig.Issue.Title:  edit.Title = &title
   if body  != normBody:          edit.Body  = &body
@@ -1849,7 +1849,7 @@ formReadMsg{precheck, current}:
       push Conflict:  "o overwrite with my version   esc keep editing"
         o   → sendEdit, saving = true             // same fields; no second check (4.5)
         esc → pop; text kept
-  precheck error → inline error; ctrl+s tries again
+  precheck error → inline error; either submit shortcut tries again
 ```
 
 The pre-check compares raw API values with raw API values, so it needs no

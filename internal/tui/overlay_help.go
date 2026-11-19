@@ -131,8 +131,6 @@ func (h *Help) View(c *Ctx, body Rect) (string, Rect) {
 // the same columns top to bottom.
 func (h *Help) writing(c *Ctx, ncols, colW int) []string {
 	t := c.Theme
-	var cells []string
-	kw := 0
 	type row struct{ k, d string }
 	var rows []row
 	for _, act := range writingActions {
@@ -141,20 +139,22 @@ func (h *Help) writing(c *Ctx, ncols, colW int) []string {
 			k, d = p[0], p[1]
 		}
 		rows = append(rows, row{k, d})
-		kw = max(kw, lipgloss.Width(k))
 	}
-	for _, r := range rows {
-		cells = append(cells, t.accent().Render(fit(r.k, kw))+"  "+t.text().Render(r.d))
+	per := (len(rows) + ncols - 1) / ncols
+	widths := make([]int, ncols)
+	for i, row := range rows {
+		col := i / per
+		widths[col] = max(widths[col], lipgloss.Width(row.k))
 	}
-	per := (len(cells) + ncols - 1) / ncols
 	out := []string{"", " " + t.bold().Render("Writing · forms, comments, quick add")}
 	for r := 0; r < per; r++ {
 		var b strings.Builder
 		b.WriteString(" ")
 		for k := 0; k < ncols; k++ {
 			cell := ""
-			if i := k*per + r; i < len(cells) {
-				cell = cells[i]
+			if i := k*per + r; i < len(rows) {
+				row := rows[i]
+				cell = t.accent().Render(fit(row.k, widths[k])) + "  " + t.text().Render(row.d)
 			}
 			b.WriteString(fit(cell, colW))
 		}
