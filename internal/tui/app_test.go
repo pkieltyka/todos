@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/lipgloss/v2"
 	"github.com/pkieltyka/todos/internal/domain"
 	"github.com/pkieltyka/todos/internal/service/servicetest"
 )
@@ -585,15 +586,75 @@ func TestErrorToast_staysUntilNextKey(t *testing.T) {
 func TestTooSmall_keepsStateAndRecovers(t *testing.T) {
 	h := newHarness(t, richFixture())
 	h.press("j", "j")
-	h.size(79, 24)
-	h.contains("todos needs at least 80×24.")
-	h.contains("This terminal is 79×24.")
+	h.size(64, 24)
+	h.contains("todos needs at least 65×24.")
+	h.contains("This terminal is 64×24.")
 	h.press("j", "enter")
-	h.size(80, 24)
+	h.size(65, 24)
 	if s := h.app.top(ViewIssues).(*IssueList); s.sel != 4 {
 		t.Fatalf("selection %d, want #4", s.sel)
 	}
 	h.contains("3/4")
+}
+
+func TestCompactTerminalNavigationAndEditing(t *testing.T) {
+	h := newHarness(t, richFixture(), withDrafts(newMemDrafts()))
+	h.size(65, 54)
+	checkFrame := func() {
+		t.Helper()
+		rows := strings.Split(h.view(), "\n")
+		if len(rows) != 54 {
+			t.Fatalf("rendered %d rows, want 54", len(rows))
+		}
+		for i, row := range rows {
+			if w := lipgloss.Width(row); w > 65 {
+				t.Fatalf("row %d is %d cells wide", i, w)
+			}
+		}
+		for _, tab := range []string{"1 Issues", "2 PRs", "3 Board"} {
+			if !strings.Contains(rows[0], tab) {
+				t.Fatalf("header is missing %q: %s", tab, rows[0])
+			}
+		}
+	}
+	for _, tab := range []string{"1", "2", "3"} {
+		h.press(tab, "/")
+		h.paste(strings.Repeat("界", 40) + "tail")
+		rows := strings.Split(h.view(), "\n")
+		cursor := h.app.View().Cursor
+		if !strings.HasPrefix(rows[1], " /…") || !strings.HasSuffix(strings.TrimRight(rows[1], " "), "tail") ||
+			cursor == nil || cursor.X >= 65 || cursor.X != lipgloss.Width(strings.TrimRight(rows[1], " ")) {
+			t.Fatalf("tab %s filter row %q, cursor %+v", tab, rows[1], cursor)
+		}
+		h.press("esc")
+		checkFrame()
+	}
+	h.contains("No status")
+	h.contains("Todo")
+	h.press("l", "l")
+	checkFrame()
+	h.press("1", "enter")
+	h.contains("Milestone")
+	checkFrame()
+	h.press("c")
+	h.contains("ctrl+s/alt+s comment")
+	h.contains("esc cancel")
+	checkFrame()
+	h.press("esc", "esc", "n", "tab")
+	h.contains("ctrl+s/alt+s create")
+	h.contains("esc cancel")
+	checkFrame()
+	h.press("esc", "?")
+	h.contains("next/prev field")
+	h.contains("done: skip/close")
+	checkFrame()
+	h.press("esc", "A")
+	h.paste(threeItems)
+	h.contains("esc keep draft")
+	h.press("alt+s")
+	h.contains("Status (M)")
+	h.contains("esc back")
+	checkFrame()
 }
 
 // Dogfood (Phase 4): the side panel's state fits its 32 cells.

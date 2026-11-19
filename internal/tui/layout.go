@@ -13,9 +13,15 @@ type Rect struct{ X, Y, W, H int }
 // Frame is the four bands of every screen (UI 1).
 type Frame struct{ Header, SubBar, Body, Footer Rect }
 
+const (
+	minTerminalWidth  = 65
+	minTerminalHeight = 24
+	compactWidth      = 80
+)
+
 // ComputeFrame lays out the bands, or reports that the window is too small.
 func ComputeFrame(w, h int) (Frame, bool) {
-	if w < 80 || h < 24 {
+	if w < minTerminalWidth || h < minTerminalHeight {
 		return Frame{}, false
 	}
 	return Frame{

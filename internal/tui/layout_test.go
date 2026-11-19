@@ -18,12 +18,15 @@ func TestComputeFrame_140x40_body37(t *testing.T) {
 	}
 }
 
-func TestComputeFrame_tooSmall_79x24_80x23(t *testing.T) {
-	if _, ok := ComputeFrame(79, 24); ok {
-		t.Fatal("79×24 fits")
+func TestComputeFrame_minimumTerminalSize(t *testing.T) {
+	if f, ok := ComputeFrame(65, 24); !ok || f.Body.W != 65 || f.Body.H != 21 {
+		t.Fatalf("65×24 frame %+v ok=%v", f, ok)
 	}
-	if _, ok := ComputeFrame(80, 23); ok {
-		t.Fatal("80×23 fits")
+	if _, ok := ComputeFrame(64, 24); ok {
+		t.Fatal("64×24 fits")
+	}
+	if _, ok := ComputeFrame(65, 23); ok {
+		t.Fatal("65×23 fits")
 	}
 }
 

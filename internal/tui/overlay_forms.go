@@ -128,7 +128,11 @@ func (f *IssueForm) Hints(c *Ctx) []hint {
 	if f.edit {
 		verb = "save"
 	}
-	hs := []hint{{"tab", "field"}, {c.Keys.Binding(ActSubmit).Help().Key, verb}, {"ctrl+r", "preview"}}
+	save := hint{c.Keys.Binding(ActSubmit).Help().Key, verb}
+	if c.Frame.Footer.W < compactWidth {
+		return []hint{{"tab", "next"}, save, {"ctrl+r", "view"}, {"esc", "cancel"}}
+	}
+	hs := []hint{{"tab", "field"}, save, {"ctrl+r", "preview"}}
 	if c.a.deps.Env.Editor != nil {
 		hs = append(hs, hint{"ctrl+o", "$EDITOR"})
 	}
@@ -564,6 +568,9 @@ func (f *CommentForm) Position(*Ctx) string {
 }
 func (f *CommentForm) Hints(c *Ctx) []hint {
 	hs := []hint{{c.Keys.Binding(ActSubmit).Help().Key, "comment"}, {"ctrl+r", "preview"}}
+	if c.Frame.Footer.W < compactWidth {
+		return append(hs, hint{"esc", "cancel"})
+	}
 	if c.a.deps.Env.Editor != nil {
 		hs = append(hs, hint{"ctrl+o", "$EDITOR"})
 	}

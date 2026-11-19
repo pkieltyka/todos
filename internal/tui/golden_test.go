@@ -241,7 +241,7 @@ func TestGolden(t *testing.T) {
 
 func TestGolden_tooSmall(t *testing.T) {
 	h := newHarness(t, richFixture())
-	h.size(79, 24)
+	h.size(64, 24)
 	golden.RequireEqual(t, []byte(h.view()))
 }
 

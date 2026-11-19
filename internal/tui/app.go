@@ -1037,7 +1037,7 @@ func (a *App) render() string {
 
 func (a *App) tooSmall() string {
 	lines := []string{
-		"todos needs at least 80×24.",
+		fmt.Sprintf("todos needs at least %d×%d.", minTerminalWidth, minTerminalHeight),
 		fmt.Sprintf("This terminal is %d×%d.", a.width, a.height),
 		"Resize the window, or q to quit.",
 	}
@@ -1071,8 +1071,22 @@ func (a *App) header(c *Ctx) string {
 			tabs = append(tabs, t.muted().Render(n))
 		}
 	}
-	left := " " + t.bold().Render("todos") + "  " + t.text().Render(line(repo)) + "    " + strings.Join(tabs, gap)
-	return spread(left, a.syncState(c)+" ", w)
+	prefix := " " + t.bold().Render("todos") + "  "
+	tabsText := strings.Join(tabs, gap)
+	status := a.syncState(c)
+	sep := "    "
+	repo = line(repo)
+	if w < compactWidth {
+		sep = "  "
+		if lipgloss.Width(status) > 25 {
+			status = fit(status, 25)
+		}
+		repoWidth := w - lipgloss.Width(prefix+sep+tabsText+status) - 2
+		if lipgloss.Width(repo) > repoWidth {
+			repo = fit(repo, repoWidth)
+		}
+	}
+	return spread(prefix+t.text().Render(repo)+sep+tabsText, status+" ", w)
 }
 
 // syncState is the header's right side (UI 5.3).

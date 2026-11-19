@@ -146,6 +146,9 @@ func (s *PRList) Update(c *Ctx, msg tea.Msg) tea.Cmd {
 
 func (s *PRList) SubBar(c *Ctx, w int) string {
 	t := c.Theme
+	if s.filtering && w < compactWidth {
+		return t.accent().Render(s.filter.compactFilter(w))
+	}
 	l := c.Store.PRs
 	left := " " + t.text().Render(string(l.Query.State)+" ▾") + t.subtle().Render(" · ") +
 		t.muted().Render("mine: "+onOff(s.mine)) + t.subtle().Render(" · ") + filterLabel(t, s.filtering, s.filter.String())
@@ -168,6 +171,9 @@ func (s *PRList) SubBar(c *Ctx, w int) string {
 }
 
 func (s *PRList) Cursor(c *Ctx) *tea.Cursor {
+	if w := c.Frame.SubBar.W; w < compactWidth {
+		return tea.NewCursor(lipgloss.Width(s.filter.compactFilter(w)), c.Frame.SubBar.Y)
+	}
 	l := c.Store.PRs
 	prefix := " " + string(l.Query.State) + " ▾ · mine: " + onOff(s.mine) + " · /"
 	return tea.NewCursor(lipgloss.Width(prefix)+len(s.filter.value), c.Frame.SubBar.Y)

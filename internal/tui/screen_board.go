@@ -271,6 +271,9 @@ func (s *Board) Update(c *Ctx, msg tea.Msg) tea.Cmd {
 
 func (s *Board) SubBar(c *Ctx, w int) string {
 	t := c.Theme
+	if s.filtering && w < compactWidth {
+		return t.accent().Render(s.filter.compactFilter(w))
+	}
 	b := c.Store.Board
 	name := "—"
 	if b.Info != nil {
@@ -299,6 +302,9 @@ func (s *Board) SubBar(c *Ctx, w int) string {
 }
 
 func (s *Board) Cursor(c *Ctx) *tea.Cursor {
+	if w := c.Frame.SubBar.W; w < compactWidth {
+		return tea.NewCursor(lipgloss.Width(s.filter.compactFilter(w)), c.Frame.SubBar.Y)
+	}
 	b := c.Store.Board
 	name := "—"
 	if b.Info != nil {

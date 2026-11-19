@@ -166,8 +166,11 @@ func (q *QuickAdd) Hints(c *Ctx) []hint {
 		if q.blocked() {
 			return []hint{{"esc", "back to text to fix"}}
 		}
-		return []hint{{"enter", "create " + itoa(q.plan.ToCreate) + plural(q.plan.ToCreate, " issues")},
-			{"a/L/M", "set for all"}, {"d", "done items"}, {"esc", "back to text"}}
+		create := hint{"enter", "create " + itoa(q.plan.ToCreate) + plural(q.plan.ToCreate, " issues")}
+		if c.Frame.Footer.W < compactWidth {
+			return []hint{create, {"a/L/M", "set all"}, {"d", "done"}, {"esc", "back"}}
+		}
+		return []hint{create, {"a/L/M", "set for all"}, {"d", "done items"}, {"esc", "back to text"}}
 	case qaRunning:
 		if q.stopping {
 			return []hint{{"", "stopping after this item…"}}
@@ -175,6 +178,9 @@ func (q *QuickAdd) Hints(c *Ctx) []hint {
 		return []hint{{"esc", "stop after this"}}
 	}
 	hs := []hint{{c.Keys.Binding(ActSubmit).Help().Key, "preview"}}
+	if c.Frame.Footer.W < compactWidth {
+		return append(hs, hint{"ctrl+x", "discard"}, hint{"esc", "keep draft"})
+	}
 	if c.a.deps.Env.Editor != nil {
 		hs = append(hs, hint{"ctrl+o", "$EDITOR"})
 	}
@@ -709,7 +715,11 @@ func (q *QuickAdd) viewWrite(c *Ctx, body Rect) string {
 	for _, m := range q.marks {
 		out = append(out, " "+t.pending().Render("⚠ may exist: check GitHub before resending · ")+t.text().Render(m.title))
 	}
-	out = append(out, " "+t.muted().Render("One issue per line · indent 2+ spaces to add a body · - [x] marks it done"))
+	reminder := "One issue per line · indent 2+ spaces to add a body · - [x] marks it done"
+	if w < compactWidth {
+		reminder = "One issue per line · indent 2+ for body · - [x] for done"
+	}
+	out = append(out, " "+t.muted().Render(reminder))
 	return box(out, w, body.H)
 }
 
@@ -760,14 +770,22 @@ func (q *QuickAdd) viewPreview(c *Ctx, body Rect) string {
 	if q.opts.Checked == "close" {
 		doneChoice = "file as closed"
 	}
-	out := []string{
-		spread(" "+head, t.muted().Render("esc back to text")+" ", w),
-		" " + t.muted().Render("Assignees ") + people + t.muted().Render(" (a)   Labels ") + labels +
-			t.muted().Render(" (L)   Status ") + status + t.muted().Render(" (M)"),
+	out := []string{spread(" "+head, t.muted().Render("esc back to text")+" ", w)}
+	if w < compactWidth {
+		out = append(out,
+			" "+t.muted().Render("Assignees (a) ")+people,
+			" "+t.muted().Render("Labels (L) ")+labels,
+			" "+t.muted().Render("Status (M) ")+status,
+		)
+	} else {
+		out = append(out, " "+t.muted().Render("Assignees ")+people+t.muted().Render(" (a)   Labels ")+labels+
+			t.muted().Render(" (L)   Status ")+status+t.muted().Render(" (M)"))
+	}
+	out = append(out,
 		spread(" "+t.muted().Render("Done items ")+t.text().Render(doneChoice)+t.muted().Render(" (d)"),
 			t.muted().Render("done items are not added to the board")+" ", w), // always shown (5.5)
 		t.subtle().Render(strings.Repeat("─", w)),
-	}
+	)
 	if len(p.Problems) > 0 {
 		for _, pr := range p.Problems {
 			out = append(out, " "+t.errorS().Render("✗ line "+itoaPlain(pr.Line)+": "+line(pr.Message)))

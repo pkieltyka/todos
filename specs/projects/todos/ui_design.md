@@ -28,11 +28,15 @@ Every screen is the same four bands. Only the body changes.
 | Body | rest | the view |
 | Footer | 1 | left: 4–7 most useful keys for the focused thing (from the keymap, so it can't drift); right: position (`12/342`). A toast replaces the left side for messages and errors. The `x` hint names what `x` would do to that issue: `x close` on an open issue, `x reopen` on a closed one (a pending close counts as closed). |
 
-At **80×24** the body is 21 rows. At **140×40** it is 37 rows. Nothing below
-80×24 is drawn except the too-small screen (§3.15).
+The minimum size is **65×24**, with a 21-row body. At **140×40** the body is
+37 rows. Below the minimum, only the too-small screen is drawn (§3.15).
 
 Width rules:
 
+- At 65–79 columns, the header preserves all three tabs and shortens the repo
+  or sync text as needed. Active filters show the end of the query on a
+  dedicated line. Help groups stack vertically, form footers use compact hints,
+  and issue and Quick Add metadata use extra rows.
 - Columns are laid out by priority. When space runs out, the lowest-priority
   column is dropped, never squeezed into garbage. The title column always takes
   what is left (minimum 24 cells) and is truncated with `…`.
@@ -512,7 +516,7 @@ into columns, with the current view's group first. It scrolls when it doesn't fi
 ### 3.15 Terminal too small
 
 ```
- todos needs at least 80×24.
+ todos needs at least 65×24.
  This terminal is 64×18.
  Resize the window, or q to quit.
 ```

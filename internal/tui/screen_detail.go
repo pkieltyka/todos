@@ -374,13 +374,22 @@ func (s *IssueDetail) Sync(c *Ctx) {
 			panelRow(t, "URL", t.muted().Render(shortURL(i.URL))),
 		)
 	} else {
+		peopleAndLabels := " " + t.muted().Render("Assignees ") + assignees + t.muted().Render("  Labels ") + labels
+		boardIndent := "  "
+		if area.W < compactWidth {
+			boardIndent = " "
+		}
+		boardAndMilestone := t.muted().Render(boardIndent+"Board ") + board + t.muted().Render("  Milestone ") + milestone
 		s.head = []string{
 			" " + t.bold().Render(i.Title),
 			" " + t.muted().Render(author(i.Author)+" opened "+agoPhrase(c.Now, i.CreatedAt)+" · updated "+agoPhrase(c.Now, i.UpdatedAt)+" · "+comments),
-			" " + t.muted().Render("Assignees ") + assignees + t.muted().Render("  Labels ") + labels +
-				t.muted().Render("  Board ") + board + t.muted().Render("  Milestone ") + milestone,
-			rule(t, "", area.W),
 		}
+		if area.W < compactWidth {
+			s.head = append(s.head, peopleAndLabels, boardAndMilestone)
+		} else {
+			s.head = append(s.head, peopleAndLabels+boardAndMilestone)
+		}
+		s.head = append(s.head, rule(t, "", area.W))
 		s.panel = nil
 	}
 	s.set(body, anchors, cw, max(1, area.H-len(s.head)))

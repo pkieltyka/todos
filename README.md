@@ -11,7 +11,8 @@ Linux or macOS, Go 1.27.3 or newer to build, and GitHub credentials from
 `GITHUB_TOKEN`. Private repositories need the
 `repo` scope; boards need `project` for changes (`read:project` for reads).
 Use `gh auth refresh -s project` to add board access when needed.
-A terminal of at least 80×24 is required for the TUI.
+A terminal of at least 65×24 is required for the TUI. Below 80 columns the
+TUI uses a compact layout that keeps the view tabs and primary shortcuts visible.
 
 Install with Go. While the repository is private, Go must be told not to
 look it up in the public checksum database, and git needs access to it:

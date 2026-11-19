@@ -366,7 +366,7 @@ clipboard.
   use the editor, preview and external-editor hand-off of 4.8.
 - **Closing.** Close applies as `completed`. Closing as `not planned` is a
   separate action. A closing comment is CLI-only in v1.
-- Minimum terminal size is 80×24. Below that, the TUI shows a "terminal too
+- Minimum terminal size is 65×24. Below that, the TUI shows a "terminal too
   small" message instead of a broken layout, and recovers when resized.
 - Light and dark terminal backgrounds are both readable. The background is
   detected; `TODOS_THEME=light|dark` overrides the detection for terminals

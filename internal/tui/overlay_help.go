@@ -101,26 +101,39 @@ func (h *Help) View(c *Ctx, body Rect) (string, Rect) {
 		rule(t, "", w),
 	}
 	cols := h.groups(c)
-	colW := (w - 1) / max(1, len(cols))
-	rows := 0
-	for _, col := range cols {
-		rows = max(rows, len(col))
-	}
+	writingCols := max(1, len(cols))
+	colW := (w - 1) / writingCols
 	var table []string
-	for r := 0; r < rows; r++ {
-		var b strings.Builder
-		b.WriteString(" ")
-		for _, col := range cols {
-			cell := ""
-			if r < len(col) {
-				cell = col[r]
+	if w < compactWidth {
+		for _, group := range cols {
+			if len(table) > 0 {
+				table = append(table, "")
 			}
-			b.WriteString(fit(cell, colW))
+			for _, row := range group {
+				table = append(table, " "+row)
+			}
 		}
-		table = append(table, b.String())
+		writingCols, colW = 1, w-1
+	} else {
+		rows := 0
+		for _, col := range cols {
+			rows = max(rows, len(col))
+		}
+		for r := 0; r < rows; r++ {
+			var b strings.Builder
+			b.WriteString(" ")
+			for _, col := range cols {
+				cell := ""
+				if r < len(col) {
+					cell = col[r]
+				}
+				b.WriteString(fit(cell, colW))
+			}
+			table = append(table, b.String())
+		}
 	}
 	if h.from == ScreenIssues || h.from == ScreenIssue || h.from == ScreenBoard {
-		table = append(table, h.writing(c, max(1, len(cols)), colW)...)
+		table = append(table, h.writing(c, writingCols, colW)...)
 	}
 	h.offset = clamp(h.offset, 0, max(0, len(table)-(body.H-len(lines))))
 	lines = append(lines, table[min(h.offset, len(table)):]...)

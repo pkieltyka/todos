@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/pkieltyka/todos/internal/domain"
 )
 
@@ -19,6 +20,21 @@ type lineInput struct {
 
 func (l *lineInput) String() string { return string(l.value) }
 func (l *lineInput) Clear()         { l.value = nil }
+
+// compactFilter shows the end of the input and leaves a cell for the cursor.
+func (l *lineInput) compactFilter(w int) string {
+	const prefix = " /"
+	value := l.String()
+	available := w - len(prefix) - 1
+	if excess := lipgloss.Width(value) - available; excess > 0 {
+		tail := ansi.TruncateLeft(value, excess+1, "…")
+		if lipgloss.Width(tail) > available {
+			tail = ansi.TruncateLeft(value, excess+2, "…")
+		}
+		value = tail
+	}
+	return prefix + value
+}
 
 // key applies an editing key and reports enter and esc.
 func (l *lineInput) key(k tea.KeyPressMsg) (enter, esc bool) {

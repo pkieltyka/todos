@@ -1347,7 +1347,7 @@ type Rect struct{ X, Y, W, H int }
 type Frame struct{ Header, SubBar, Body, Footer Rect }
 
 func ComputeFrame(w, h int) (Frame, bool) {
-    if w < 80 || h < 24 {
+    if w < 65 || h < 24 {
         return Frame{}, false
     }
     return Frame{
@@ -1359,7 +1359,9 @@ func ComputeFrame(w, h int) (Frame, bool) {
 }
 ```
 
-This gives a body of 21 rows at 80×24 and 37 rows at 140×40 (UI 1). Bands are
+This gives a body of 21 rows at 65×24 and 37 rows at 140×40 (UI 1). At 65–79
+columns the header, active filters, help, and writing overlays use the compact
+layout described in UI 1. Bands are
 built as strings exactly `w` cells wide, using `lipgloss.Width` and
 `ansi.Truncate(s, w, "…")`, and joined with `\n`.
 
@@ -1995,7 +1997,8 @@ Its API *(read)*: `NewTestModel(tb, m, WithInitialTermSize(w, h))`, `Send`,
 **layout**
 - `TestComputeFrame_80x24_body21`
 - `TestComputeFrame_140x40_body37`
-- `TestComputeFrame_tooSmall_79x24_80x23`
+- `TestComputeFrame_minimumTerminalSize`
+- `TestCompactTerminalNavigationAndEditing` at 65×54
 - `TestFit_dropsLabelsFirstAt80`
 - `TestFit_titleNeverBelow24`
 - `TestFit_statusColumnOnlyFrom120`
@@ -2231,7 +2234,7 @@ time)
 - delete confirm
 - help
 - toast and error toast
-- too small (79×24)
+- too small (64×24)
 
 ---
 

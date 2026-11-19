@@ -161,6 +161,9 @@ func (s *IssueList) Update(c *Ctx, msg tea.Msg) tea.Cmd {
 
 func (s *IssueList) SubBar(c *Ctx, w int) string {
 	t := c.Theme
+	if s.filtering && w < compactWidth {
+		return t.accent().Render(s.filter.compactFilter(w))
+	}
 	l := c.Store.Issues
 	left := " " + t.text().Render(string(l.Query.State)+" ▾") + closedNote(t, l.Query.State) + t.subtle().Render(" · ") +
 		t.muted().Render("mine: "+onOff(l.Query.Mine)) + t.subtle().Render(" · ") + s.filterLabel(c)
@@ -205,6 +208,9 @@ func (s *IssueList) filterLabel(c *Ctx) string {
 }
 
 func (s *IssueList) Cursor(c *Ctx) *tea.Cursor {
+	if w := c.Frame.SubBar.W; w < compactWidth {
+		return tea.NewCursor(lipgloss.Width(s.filter.compactFilter(w)), c.Frame.SubBar.Y)
+	}
 	l := c.Store.Issues
 	t := c.Theme
 	prefix := " " + t.text().Render(string(l.Query.State)+" ▾") + closedNote(t, l.Query.State) + " · " + "mine: " + onOff(l.Query.Mine) + " · /"
