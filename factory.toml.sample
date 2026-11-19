@@ -1,0 +1,30 @@
+[operator]
+name = "operator"
+harness = "codex"
+model = "gpt-6.2-sol"
+thinking = "medium"
+notes = "Owns architecture, task approval, final review, and integration."
+
+[members.lead-dev]
+harness = "codex"
+model = "gpt-6.2-sol"
+thinking = "high"
+notes = "Owns the GitHub client, service, cache, domain, quick add, config, CLI, and agent skill."
+
+[members.frontend-dev]
+harness = "claude"
+model = "claude-opus-5-5"
+thinking = "high"
+notes = "Owns the Bubble Tea terminal UI, Markdown rendering, and terminal golden tests."
+
+[members.reviewer]
+harness = "codex"
+model = "gpt-6-luna"
+thinking = "high"
+notes = "Reviews diffs and specs, records concrete findings, and verifies fixes."
+
+[members.pm]
+harness = "codex"
+model = "gpt-6-luna"
+thinking = "high"
+notes = "Maintains TODO.md and records task owners, acceptance criteria, and outcomes."
