@@ -148,3 +148,8 @@ TODOS_LIVE_TESTS=1 TODOS_LIVE_REPO=pkieltyka/todos go test ./internal/cli -run '
 ```
 
 Set `TODOS_LIVE_PROJECT=OWNER/NUMBER` if the repository's board is ambiguous.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+Copyright © 2026 Peter Kieltyka.
